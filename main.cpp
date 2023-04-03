@@ -119,7 +119,8 @@ int main() {
         glm::vec3 e12 = v2 - v1;
         glm::vec3 n = ( glm::cross( e01, e12 ) );
 
-        glm::vec3 dp = glm::vec3(1.0f, 1.0f, 1.0f);
+        float dps = 1.0f;
+        glm::vec3 dp = glm::vec3(dps, dps, dps);
 
         glm::vec3 triangle_lower = glm::min(glm::min(v0, v1), v2);
         glm::vec3 triangle_upper = glm::max(glm::max(v0, v1), v2);
@@ -144,7 +145,7 @@ int main() {
             {
                 int major = majorAxis(n);
                 float k1 = glm::dot(n, dp * 0.5f - v0);
-                float k2 = 0.5f * n[major] * dp[major];
+                float k2 = 0.5f * dps * glm::max( glm::max( glm::abs(n.x), glm::abs(n.y) ), glm::abs(n.z) );
                 d1 = k1 - k2;
                 d2 = k1 + k2;
             }
@@ -181,9 +182,8 @@ int main() {
                     }
                     else
                     {
-                        int major = majorAxis(ne);
                         d_const = glm::dot(ne, dp_proj * 0.5f - a)
-                            + 0.5f * dp_proj[major] * glm::abs(ne[major]);
+                            + 0.5f * dps * glm::max(glm::abs(ne.x), glm::abs(ne.y));
                     }
                     d_consts[axis][edge] = d_const;
                 }
@@ -201,7 +201,7 @@ int main() {
                     continue;
                 }
 
-                // DrawAABB( p, p + dp, { 200 ,200 ,200 });
+                //DrawAABB( p, p + dp, { 200 ,200 ,200 });
 
                 bool overlap = true;
 
