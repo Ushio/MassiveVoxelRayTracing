@@ -33,6 +33,7 @@ float project2plane_reminder(glm::vec3 p, int axis)
     case 2:
         return p.y;
     }
+    return 0.0f;
 }
 
 bool overlapAABB(glm::vec3 lowerA, glm::vec3 upperA, glm::vec3 lowerB, glm::vec3 upperB)
@@ -47,24 +48,6 @@ bool overlapAABB(glm::vec3 lowerA, glm::vec3 upperA, glm::vec3 lowerB, glm::vec3
         return false;
     }
     return true;
-}
-
-int majorAxis( glm::vec3 d )
-{
-    float x = glm::abs(d.x);
-    float y = glm::abs(d.y);
-    float z = glm::abs(d.z);
-    if (x < y)
-    {
-        return y < z ? 2 : 1;
-    }
-    return x < z ? 2 : 0;
-}
-int majorAxis( glm::vec2 d )
-{
-    float x = glm::abs(d.x);
-    float y = glm::abs(d.y);
-    return x < y ? 1 : 0;
 }
 
 int main() {
@@ -125,12 +108,11 @@ int main() {
         glm::vec3 triangle_lower = glm::min(glm::min(v0, v1), v2);
         glm::vec3 triangle_upper = glm::max(glm::max(v0, v1), v2);
 
-        
         {
             glm::vec3 c = glm::vec3(
-                0.0f < n.x ? dp.x : 0.0f,
-                0.0f < n.y ? dp.y : 0.0f,
-                0.0f < n.z ? dp.z : 0.0f
+                0.0f < n.x ? dps : 0.0f,
+                0.0f < n.y ? dps : 0.0f,
+                0.0f < n.z ? dps : 0.0f
             );
 
             float d1;
@@ -143,7 +125,6 @@ int main() {
             }
             else
             {
-                int major = majorAxis(n);
                 float k1 = glm::dot(n, dp * 0.5f - v0);
                 float k2 = 0.5f * dps * glm::max( glm::max( glm::abs(n.x), glm::abs(n.y) ), glm::abs(n.z) );
                 d1 = k1 - k2;
@@ -154,7 +135,7 @@ int main() {
             glm::vec2 nes[3 /*axis*/][3 /*edge*/];
             for (int axis = 0; axis < 3 ; axis++)
             {
-                glm::vec2 dp_proj = project2plane(dp, axis);
+                glm::vec2 dp_proj = glm::vec2(dps, dps);
                 glm::vec2 vs_proj[3] = {
                     project2plane(v0, axis),
                     project2plane(v1, axis),
@@ -238,7 +219,7 @@ int main() {
         //    glm::vec3 p = glm::vec3(x, y, 4);
 
         //    glm::vec2 p_proj  = project2plane(p, 0);
-        //    glm::vec2 dp_proj = project2plane(dp, 0);
+        //    glm::vec2 dp_proj = glm::vec2(dps, dps);
         //    glm::vec2 vs_proj[3] = {
         //        project2plane( v0, 0 ),
         //        project2plane( v1, 0 ),
@@ -285,7 +266,7 @@ int main() {
         //    glm::vec3 p = glm::vec3(x, y, 4);
 
         //    glm::vec2 p_proj  = project2plane(p, 0);
-        //    glm::vec2 dp_proj = project2plane(dp, 0);
+        //    glm::vec2 dp_proj = glm::vec2(dps, dps);
         //    glm::vec2 vs_proj[3] = {
         //        project2plane( v0, 0 ),
         //        project2plane( v1, 0 ),
