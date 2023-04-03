@@ -49,6 +49,24 @@ bool overlapAABB(glm::vec3 lowerA, glm::vec3 upperA, glm::vec3 lowerB, glm::vec3
     return true;
 }
 
+int majorAxis( glm::vec3 d )
+{
+    float x = glm::abs(d.x);
+    float y = glm::abs(d.y);
+    float z = glm::abs(d.z);
+    if (x < y)
+    {
+        return y < z ? 2 : 1;
+    }
+    return x < z ? 2 : 0;
+}
+int majorAxis( glm::vec2 d )
+{
+    float x = glm::abs(d.x);
+    float y = glm::abs(d.y);
+    return x < y ? 1 : 0;
+}
+
 int main() {
     using namespace pr;
 
@@ -67,7 +85,7 @@ int main() {
 
     while (pr::NextFrame() == false) {
         if (IsImGuiUsingMouse() == false) {
-            UpdateCameraBlenderLike(&camera);
+            UpdateCameraBlenderLike(&camera  );
         }
 
         ClearBackground(0.1f, 0.1f, 0.1f, 1);
@@ -95,33 +113,94 @@ int main() {
         DrawLine(v1, v2, { 128 , 128 , 128 });
         DrawLine(v2, v0, { 128 , 128 , 128 });
 
+        static bool sixSeparating = true;
+
         glm::vec3 e01 = v1 - v0;
         glm::vec3 e12 = v2 - v1;
         glm::vec3 n = ( glm::cross( e01, e12 ) );
 
         glm::vec3 dp = glm::vec3(1.0f, 1.0f, 1.0f);
-        glm::vec3 c = glm::vec3(
-            0.0f < n.x ? dp.x : 0.0f,
-            0.0f < n.y ? dp.y : 0.0f,
-            0.0f < n.z ? dp.z : 0.0f
-        );
 
-        float eps = FLT_EPSILON;
-        float d1 = glm::dot(n, c - v0);
-        float d2 = glm::dot(n, dp - c - v0);
+        glm::vec3 triangle_lower = glm::min(glm::min(v0, v1), v2);
+        glm::vec3 triangle_upper = glm::max(glm::max(v0, v1), v2);
 
-        glm::vec3 triangle_lower = glm::min( glm::min( v0, v1 ), v2 );
-        glm::vec3 triangle_upper = glm::max( glm::max( v0, v1 ), v2 );
-
-        for( int x = -15; x < 15; x++ )
-        for( int y = -15; y < 15; y++ )
-        for( int z = -15; z < 15; z++ )
+        
         {
-            glm::vec3 p = glm::vec3( x, y, z );
+            glm::vec3 c = glm::vec3(
+                0.0f < n.x ? dp.x : 0.0f,
+                0.0f < n.y ? dp.y : 0.0f,
+                0.0f < n.z ? dp.z : 0.0f
+            );
 
-            float PoN = glm::dot( p, n );
-            if( ( PoN + d1 ) * ( PoN + d2 ) < eps)
+            float d1;
+            float d2;
+
+            if (sixSeparating == false)
             {
+                d1 = glm::dot(n, c - v0);
+                d2 = glm::dot(n, dp - c - v0);
+            }
+            else
+            {
+                int major = majorAxis(n);
+                float k1 = glm::dot(n, dp * 0.5f - v0);
+                float k2 = 0.5f * n[major] * dp[major];
+                d1 = k1 - k2;
+                d2 = k1 + k2;
+            }
+
+            float d_consts[3 /*axis*/][3 /*edge*/];
+            glm::vec2 nes[3 /*axis*/][3 /*edge*/];
+            for (int axis = 0; axis < 3 ; axis++)
+            {
+                glm::vec2 dp_proj = project2plane(dp, axis);
+                glm::vec2 vs_proj[3] = {
+                    project2plane(v0, axis),
+                    project2plane(v1, axis),
+                    project2plane(v2, axis),
+                };
+                float reminder = project2plane_reminder(n, axis);
+
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    glm::vec2 a = vs_proj[edge];
+                    glm::vec2 b = vs_proj[(edge + 1) % 3];
+                    glm::vec2 e = b - a;
+                    glm::vec2 ne = glm::vec2(-e.y, e.x);
+                    if (reminder < 0.0f) {
+                        ne = -ne;
+                    }
+                    nes[axis][edge] = ne;
+
+                    float d_const;
+                    if (sixSeparating == false)
+                    {
+                        d_const = glm::max(ne.x * dp_proj.x, 0.0f)
+                            + glm::max(ne.y * dp_proj.y, 0.0f)
+                            - glm::dot(ne, a);
+                    }
+                    else
+                    {
+                        int major = majorAxis(ne);
+                        d_const = glm::dot(ne, dp_proj * 0.5f - a)
+                            + 0.5f * dp_proj[major] * glm::abs(ne[major]);
+                    }
+                    d_consts[axis][edge] = d_const;
+                }
+            }
+
+            for( int x = -25; x < 25; x++ )
+            for( int y = -25; y < 25; y++ )
+            for( int z = -25; z < 25; z++ )
+            {
+                glm::vec3 p = glm::vec3( x, y, z );
+
+                float PoN = glm::dot( p, n );
+                if (0.0f < (PoN + d1) * (PoN + d2))
+                {
+                    continue;
+                }
+
                 // DrawAABB( p, p + dp, { 200 ,200 ,200 });
 
                 bool overlap = true;
@@ -136,28 +215,9 @@ int main() {
                 for( int axis = 0; axis < 3 && overlap ; axis++ )
                 {
                     glm::vec2 p_proj = project2plane(p, axis);
-                    glm::vec2 dp_proj = project2plane(dp, axis);
-                    glm::vec2 vs_proj[3] = {
-                        project2plane(v0, axis),
-                        project2plane(v1, axis),
-                        project2plane(v2, axis),
-                    };
-                    float reminder = project2plane_reminder(n, axis);
-                    
-                    for( int i = 0; i < 3 && overlap; i++ )
+                    for( int edge = 0; edge < 3 && overlap; edge++ )
                     {
-                        glm::vec2 a = vs_proj[i];
-                        glm::vec2 b = vs_proj[(i + 1) % 3];
-                        glm::vec2 e = b - a;
-                        glm::vec2 ne = glm::vec2(-e.y, e.x);
-                        if (reminder < 0.0f) {
-                            ne = -ne;
-                        }
-                        float d = glm::dot(ne, p_proj)
-                            + glm::max(ne.x * dp_proj.x, 0.0f)
-                            + glm::max(ne.y * dp_proj.y, 0.0f)
-                            - glm::dot(ne, a);
-
+                        float d = glm::dot(nes[axis][edge], p_proj) + d_consts[axis][edge];
                         if (d < 0.0f)
                         {
                             overlap = false;
@@ -219,6 +279,54 @@ int main() {
         //    }
         //}
 
+        //for( int x = -5; x < 5; x++ )
+        //for( int y = -5; y < 5; y++ )
+        //{
+        //    glm::vec3 p = glm::vec3(x, y, 4);
+
+        //    glm::vec2 p_proj  = project2plane(p, 0);
+        //    glm::vec2 dp_proj = project2plane(dp, 0);
+        //    glm::vec2 vs_proj[3] = {
+        //        project2plane( v0, 0 ),
+        //        project2plane( v1, 0 ),
+        //        project2plane( v2, 0 ),
+        //    };
+
+        //    // bbox
+        //    // glm::vec2
+
+        //    float reminder = project2plane_reminder( n, 0 );
+        //    bool overlap = true;
+        //    for (int i = 0; i < 3; i++)
+        //    {
+        //        glm::vec2 a = vs_proj[i];
+        //        glm::vec2 b = vs_proj[(i + 1) % 3];
+        //        glm::vec2 e = b - a;
+        //        glm::vec2 ne = glm::vec2( -e.y, e.x );
+        //        if (reminder < 0.0f ) {
+        //            ne = -ne;
+        //        }
+
+        //        int major = majorAxis( ne );
+        //        float d = glm::dot(ne, p_proj)
+        //            + glm::dot(ne, dp_proj * 0.5f - a)
+        //            + 0.5f * dp_proj[major] * glm::abs( ne[major] );
+
+        //        if (d < 0.0f)
+        //        {
+        //            overlap = false;
+        //            break;
+        //        }
+
+        //        DrawLine({ a, 4 }, { b, 4 }, { 255 , 128 , 128 });
+        //    }
+
+        //    if (overlap)
+        //    {
+        //        DrawAABB(p, p + dp, { 200 ,200 ,200 });
+        //    }
+        //}
+
         PopGraphicState();
         EndCamera();
 
@@ -227,7 +335,7 @@ int main() {
         ImGui::SetNextWindowSize({ 500, 800 }, ImGuiCond_Once);
         ImGui::Begin("Panel");
         ImGui::Text("fps = %f", GetFrameRate());
-
+        ImGui::Checkbox("sixSeparating", &sixSeparating);
         ImGui::End();
 
         EndImGui();
