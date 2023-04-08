@@ -237,6 +237,20 @@ struct VoxelTriangleIntersector
     }
 };
 
+float ss_floor( float value )
+{
+    return _mm_cvtss_si32(_mm_floor_ss(_mm_setzero_ps(), _mm_set_ss(value)));
+}
+glm::vec2 ss_floor(glm::vec2 x)
+{
+    return glm::vec2(ss_floor(x.x), ss_floor(x.y));
+}
+
+glm::vec3 ss_floor(glm::vec3 x)
+{
+    return glm::vec3(ss_floor(x.x), ss_floor(x.y), ss_floor(x.z));
+}
+
 struct VoxelTriangleVisitor
 {
     int major;
@@ -255,8 +269,8 @@ struct VoxelTriangleVisitor
         origin_xy = project2plane(origin, major);
         origin_z = project2plane_reminder(origin, major);
 
-        lower_xy = glm::ivec2(glm::floor((project2plane(triangle_lower, major) - origin_xy) / dps));
-        upper_xy = glm::ivec2(glm::floor((project2plane(triangle_upper, major) - origin_xy) / dps));
+        lower_xy = glm::ivec2(ss_floor((project2plane(triangle_lower, major) - origin_xy) / dps));
+        upper_xy = glm::ivec2(ss_floor((project2plane(triangle_upper, major) - origin_xy) / dps));
         lower_xy = glm::max(lower_xy, glm::ivec2(0, 0));
         upper_xy = glm::min(upper_xy, glm::ivec2(gridRes - 1, gridRes - 1));
 
@@ -288,8 +302,8 @@ struct VoxelTriangleVisitor
         float tmax = var + constant_max;
         float tmin = var + constant_min;
 
-        int lowerz = (int)(glm::floor((tmin - origin_z) / dps));
-        int upperz = (int)(glm::floor((tmax - origin_z) / dps));
+        int lowerz = (int)(ss_floor((tmin - origin_z) / dps));
+        int upperz = (int)(ss_floor((tmax - origin_z) / dps));
         lowerz = glm::max( lowerz, 0 );
         upperz = glm::min( upperz, gridRes - 1);
         return glm::ivec2( lowerz, upperz );
@@ -428,6 +442,7 @@ int main() {
 
             glm::vec3 origin = lower;
 
+            for (int k = 0; k < 100; k++)
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 glm::vec3 v0 = positions[indices[i * 3]];
@@ -437,8 +452,8 @@ int main() {
                 VoxelTriangleIntersector intersector(v0, v1, v2, sixSeparating, dps);
 
 #if 0
-                glm::ivec3 lower = glm::ivec3(glm::floor((intersector.triangle_lower - origin) / dps));
-                glm::ivec3 upper = glm::ivec3(glm::floor((intersector.triangle_upper - origin) / dps));
+                glm::ivec3 lower = glm::ivec3(ss_floor((intersector.triangle_lower - origin) / dps));
+                glm::ivec3 upper = glm::ivec3(ss_floor((intersector.triangle_upper - origin) / dps));
                 lower = glm::max(lower, glm::ivec3(0, 0, 0));
                 upper = glm::min(upper, glm::ivec3(gridRes - 1, gridRes - 1, gridRes - 1));
                 for (int x = lower.x; x <= upper.x; x++)
