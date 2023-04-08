@@ -442,7 +442,6 @@ int main() {
 
             glm::vec3 origin = lower;
 
-            for (int k = 0; k < 100; k++)
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 glm::vec3 v0 = positions[indices[i * 3]];
