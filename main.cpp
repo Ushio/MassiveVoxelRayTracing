@@ -7,15 +7,15 @@ glm::vec2 project2plane(glm::vec3 p, int axis)
     glm::vec2 r;
     switch (axis)
     {
-    case 0:
+    case 0: // z axis
         r.x = p.x;
         r.y = p.y;
         break;
-    case 1:
+    case 1: // y axis
         r.x = p.y;
         r.y = p.z;
         break;
-    case 2:
+    case 2: // x axis
         r.x = p.z;
         r.y = p.x;
         break;
@@ -48,6 +48,66 @@ bool overlapAABB(glm::vec3 lowerA, glm::vec3 upperA, glm::vec3 lowerB, glm::vec3
         return false;
     }
     return true;
+}
+
+glm::ivec2 project2plane( glm::ivec3 p, int axis )
+{
+    glm::ivec2 r;
+    switch (axis)
+    {
+    case 0: // z axis
+        r.x = p.x;
+        r.y = p.y;
+        break;
+    case 1: // x axis
+        r.x = p.y;
+        r.y = p.z;
+        break;
+    case 2: // y axis
+        r.x = p.z;
+        r.y = p.x;
+        break;
+    }
+    return r;
+}
+int majorAxis(glm::vec3 d)
+{
+    float x = glm::abs(d.x);
+    float y = glm::abs(d.y);
+    float z = glm::abs(d.z);
+    if (x < y)
+    {
+        return y < z ? 0 : 2;
+    }
+    return x < z ? 0 : 1;
+}
+
+glm::vec3 unProjectPlane(glm::vec2 p, float reminder, int axis)
+{
+    switch (axis)
+    {
+    case 0:
+        return glm::vec3(p.x, p.y, reminder);
+    case 1:
+        return glm::vec3(reminder, p.x, p.y );
+    case 2:
+        return glm::vec3(p.y, reminder, p.x );
+    }
+    return glm::vec3(0.0f, 0.0f, 0.0f);
+}
+
+glm::ivec3 unProjectPlane(glm::ivec2 p, int reminder, int axis)
+{
+    switch (axis)
+    {
+    case 0:
+        return glm::ivec3(p.x, p.y, reminder);
+    case 1:
+        return glm::ivec3(reminder, p.x, p.y );
+    case 2:
+        return glm::ivec3(p.y, reminder, p.x );
+    }
+    return glm::ivec3(0, 0, 0);
 }
 
 struct VoxelTriangleIntersector
@@ -135,8 +195,6 @@ struct VoxelTriangleIntersector
             return false;
         }
 
-        bool overlap = true;
-
         // bbox test for a corner case
         if (overlapAABB(p, p + glm::vec3( dps, dps, dps ), triangle_lower, triangle_upper) == false)
         {
@@ -144,10 +202,10 @@ struct VoxelTriangleIntersector
         }
 
         // projection test
-        for (int axis = 0; axis < 3 && overlap; axis++)
+        for (int axis = 0; axis < 3 ; axis++)
         {
             glm::vec2 p_proj = project2plane(p, axis);
-            for (int edge = 0; edge < 3 && overlap; edge++)
+            for (int edge = 0; edge < 3; edge++)
             {
                 float d = glm::dot(nes[axis][edge], p_proj) + d_consts[axis][edge];
                 if( d < 0.0f )
@@ -158,6 +216,84 @@ struct VoxelTriangleIntersector
         }
         return true;
     }
+};
+
+struct VoxelTriangleVisitor
+{
+    int major;
+    float kx;
+    float ky;
+    float constant_max;
+    float constant_min;
+    glm::vec2 origin_xy;
+    float origin_z;
+    glm::ivec2 lower_xy;
+    glm::ivec2 upper_xy;
+
+    VoxelTriangleVisitor( glm::vec3 origin, glm::vec3 triangle_lower, glm::vec3 triangle_upper, glm::vec3 v0, glm::vec3 n, float dps, int gridRes )
+    {
+        major = majorAxis(n);
+        origin_xy = project2plane(origin, major);
+        origin_z = project2plane_reminder(origin, major);
+
+        lower_xy = glm::ivec2(glm::floor((project2plane(triangle_lower, major) - origin_xy) / dps));
+        upper_xy = glm::ivec2(glm::floor((project2plane(triangle_upper, major) - origin_xy) / dps));
+        lower_xy = glm::max(lower_xy, glm::ivec2(0, 0));
+        upper_xy = glm::min(upper_xy, glm::ivec2(gridRes - 1, gridRes - 1));
+
+        glm::vec2 v0_xy = project2plane(v0, major);
+        float v0_z = project2plane_reminder(v0, major);
+
+        glm::vec2 n_xy = project2plane(n, major);
+        float n_z = project2plane_reminder(n, major);
+
+        kx = -n_xy.x / n_z;
+        ky = -n_xy.y / n_z;
+        constant_max =
+            -kx * v0_xy.x
+            - ky * v0_xy.y
+            + v0_z
+            + dps * (glm::max(kx, 0.0f) + glm::max(ky, 0.0f));
+        constant_min =
+            -kx * v0_xy.x
+            - ky * v0_xy.y
+            + v0_z
+            + dps * (glm::min(kx, 0.0f) + glm::min(ky, 0.0f));
+    }
+
+    glm::ivec2 zRangeInclusive( int x, int y, float dps, int gridRes )const
+    {
+        glm::vec2 o_xy = origin_xy + glm::vec2(dps * x, dps * y);
+
+        float var = kx * o_xy.x + ky * o_xy.y;
+        float tmax = var + constant_max;
+        float tmin = var + constant_min;
+
+        int lowerz = (int)(glm::floor((tmin - origin_z) / dps));
+        int upperz = (int)(glm::floor((tmax - origin_z) / dps));
+        lowerz = glm::max( lowerz, 0 );
+        upperz = glm::min( upperz, gridRes - 1);
+        return glm::ivec2( lowerz, upperz );
+    }
+    glm::vec3 p( int x, int y, int z, float dps ) const
+    {
+        glm::vec2 o_xy = origin_xy + glm::vec2(dps * x, dps * y);
+        return unProjectPlane(o_xy, origin_z + (float)z * dps, major);
+    }
+};
+
+class SequencialHasher
+{
+public:
+    void add(uint32_t xs, uint32_t resolution)
+    {
+        m_h += m_base * xs;
+        m_base *= resolution;
+    }
+    uint32_t value() const { return m_h; }
+private:
+    uint32_t m_base = 1;
+    uint32_t m_h = 0;
 };
 
 int main() {
@@ -176,9 +312,11 @@ int main() {
 
     double e = GetElapsedTime();
 
+    const char* input = "bunny.obj";
+    // const char* input = "Tri.obj";
     SetDataDir(ExecutableDir());
     std::string errorMsg;
-    std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath("Tri.obj"), errorMsg );
+    std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath(input), errorMsg );
 
     while (pr::NextFrame() == false) {
         if (IsImGuiUsingMouse() == false) {
@@ -194,7 +332,9 @@ int main() {
         DrawGrid(GridAxis::XZ, 1.0f, 10, { 128, 128, 128 });
         DrawXYZAxis(1.0f);
 
-#if 0
+        static double voxel_time = 0.0f;
+
+#if 1
         static bool sixSeparating = true;
         static float dps = 0.1f;
         static glm::vec3 origin = { -2.0f, -2.0f, -2.0f };
@@ -230,7 +370,6 @@ int main() {
 
             // Assume Triangle
 
-
             glm::vec3 lower = glm::vec3( FLT_MAX, FLT_MAX, FLT_MAX );
             glm::vec3 upper = glm::vec3( -FLT_MAX, -FLT_MAX, -FLT_MAX );
             for (int i = 0; i < faceCounts.count(); i++)
@@ -258,6 +397,12 @@ int main() {
             DrawAABB(lower, lower + glm::vec3(dps, dps, dps) * (float)gridRes, {255 ,0 ,0});
 
             // Voxelization
+            static std::vector<char> voxels;
+            voxels.resize(gridRes * gridRes * gridRes);
+            std::fill( voxels.begin(), voxels.end(), 0 );
+
+            Stopwatch voxelsw;
+
             glm::vec3 origin = lower;
 
             for (int i = 0; i < faceCounts.count(); i++)
@@ -268,17 +413,11 @@ int main() {
 
                 VoxelTriangleIntersector intersector(v0, v1, v2, sixSeparating, dps);
 
-                glm::vec3 conservativeLower = intersector.triangle_lower - glm::vec3(dps, dps, dps) / 128.0f;
-                glm::vec3 conservativeUpper = intersector.triangle_upper + glm::vec3(dps, dps, dps) / 128.0f;
-
-                glm::ivec3 lower = glm::ivec3(glm::floor((conservativeLower - origin) / dps));
-                glm::ivec3 upper = glm::ivec3(glm::floor((conservativeUpper - origin) / dps));
-
+#if 0
+                glm::ivec3 lower = glm::ivec3(glm::floor((intersector.triangle_lower - origin) / dps));
+                glm::ivec3 upper = glm::ivec3(glm::floor((intersector.triangle_upper - origin) / dps));
                 lower = glm::max(lower, glm::ivec3(0, 0, 0));
-                upper = glm::max(upper, glm::ivec3(0, 0, 0));
-                lower = glm::min(lower, glm::ivec3(gridRes - 1, gridRes - 1, gridRes - 1));
                 upper = glm::min(upper, glm::ivec3(gridRes - 1, gridRes - 1, gridRes - 1));
-
                 for (int x = lower.x; x <= upper.x; x++)
                 for (int y = lower.y; y <= upper.y; y++)
                 for (int z = lower.z; z <= upper.z; z++)
@@ -287,14 +426,62 @@ int main() {
                     bool overlap = intersector.intersect(p, dps);
                     if (overlap)
                     {
-                        DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                        // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                        SequencialHasher h;
+                        h.add(x, gridRes);
+                        h.add(y, gridRes);
+                        h.add(z, gridRes);
+                        voxels[h.value()] = 1;
                     }
+                }
+#else
+                VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
+                for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
+                for (int y = visitor.lower_xy.y; y <= visitor.upper_xy.y; y++)
+                {
+                    glm::ivec2 zrange = visitor.zRangeInclusive( x, y, dps, gridRes );
+                    for (int z = zrange.x; z <= zrange.y; z++)
+                    {
+                        glm::vec3 p = visitor.p( x, y, z, dps );
+                        bool overlap = intersector.intersect(p, dps);
+                        if (overlap)
+                        {
+                            // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                            glm::ivec3 c = unProjectPlane(glm::ivec2(x,y), z, visitor.major);
+                            SequencialHasher h;
+                            h.add(c.x, gridRes);
+                            h.add(c.y, gridRes);
+                            h.add(c.z, gridRes);
+                            voxels[h.value()] = 1;
+                        }
+                    }
+                }
+#endif
+            } // face
+
+            voxel_time = voxelsw.elapsed();
+
+            // Draw
+            for (int x = 0; x < gridRes; x++)
+            for (int y = 0; y < gridRes; y++)
+            for (int z = 0; z < gridRes; z++)
+            {
+                SequencialHasher h;
+                h.add(x, gridRes);
+                h.add(y, gridRes);
+                h.add(z, gridRes);
+                if (voxels[h.value()])
+                {
+                    glm::vec3 p = origin + glm::vec3(x, y, z) * dps;
+                    DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
                 }
             }
         });
 #endif
 
-#if 1
+        static bool betterCulling = false;
+
+#if 0
         float unit = 1.0f;
         static glm::vec3 v0 = { -unit, -unit, 0.0f };
         static glm::vec3 v1 = { unit , -unit, 0.0f };
@@ -321,30 +508,109 @@ int main() {
         DrawAABB(origin, origin + glm::vec3(dps, dps, dps) * (float)gridRes, { 255 ,0 ,0 });
 
         VoxelTriangleIntersector intersector( v0, v1, v2, sixSeparating, dps );
-
-        glm::vec3 conservativeLower = intersector.triangle_lower - glm::vec3( dps, dps, dps ) / 128.0f;
-        glm::vec3 conservativeUpper = intersector.triangle_upper + glm::vec3( dps, dps, dps ) / 128.0f;
-
-        glm::ivec3 lower = glm::ivec3( glm::floor( ( conservativeLower - origin ) / dps ) );
-        glm::ivec3 upper = glm::ivec3( glm::floor( ( conservativeUpper - origin ) / dps ) );
-
-        lower = glm::max( lower, glm::ivec3( 0, 0, 0 ) );
-        upper = glm::max( upper, glm::ivec3( 0, 0, 0 ) );
-        lower = glm::min( lower, glm::ivec3( gridRes-1, gridRes-1, gridRes-1 ) );
-        upper = glm::min( upper, glm::ivec3( gridRes-1, gridRes-1, gridRes-1 ) );
-
-        for( int x = lower.x; x <= upper.x ; x++ )
-        for( int y = lower.y; y <= upper.y ; y++ )
-        for( int z = lower.z; z <= upper.z ; z++ )
+        if (betterCulling == false)
         {
-            glm::vec3 p = origin + glm::vec3( x, y, z ) * dps;
-            bool overlap = intersector.intersect( p, dps );
-            if (overlap)
+            glm::ivec3 lower = glm::ivec3( glm::floor( (intersector.triangle_lower - origin ) / dps ) );
+            glm::ivec3 upper = glm::ivec3( glm::floor( (intersector.triangle_upper - origin ) / dps ) );
+            lower = glm::max( lower, glm::ivec3( 0, 0, 0 ) );
+            upper = glm::min( upper, glm::ivec3( gridRes-1, gridRes-1, gridRes-1 ) );
+
+            for( int x = lower.x; x <= upper.x ; x++ )
+            for( int y = lower.y; y <= upper.y ; y++ )
+            for( int z = lower.z; z <= upper.z ; z++ )
             {
-                DrawAABB(p, p + glm::vec3(dps, dps, dps), {200 ,200 ,200});
+                glm::vec3 p = origin + glm::vec3( x, y, z ) * dps;
+                bool overlap = intersector.intersect( p, dps );
+                if (overlap)
+                {
+                    DrawAABB(p, p + glm::vec3(dps, dps, dps), {200 ,200 ,200});
+                }
             }
         }
 
+        //static glm::vec3 projp = { 0.0f, 0.0f, 0.0f };
+
+        //projp.z = origin.z;
+
+        //DrawText(projp, "projp");
+        //ManipulatePosition(camera, &projp, 1);
+
+        // float t = glm::dot(v0 - projp, intersector.n) / intersector.n.z;
+        // DrawSphere({ projp.x, projp.y, projp.z + t }, 0.02f, { 255,255,0 });
+
+        if ( betterCulling )
+        {
+            VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
+            for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
+            for (int y = visitor.lower_xy.y; y <= visitor.upper_xy.y; y++)
+            {
+                glm::ivec2 zrange = visitor.zRangeInclusive( x, y, dps, gridRes );
+                for (int z = zrange.x; z <= zrange.y; z++)
+                {
+                    glm::vec3 p = visitor.p( x, y, z, dps );
+                    bool overlap = intersector.intersect(p, dps);
+                    if (overlap)
+                    {
+                        DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                    }
+                }
+            }
+
+        //    int major = majorAxis( intersector.n );
+
+        //    glm::vec2 origin_xy = project2plane(origin, major);
+        //    float origin_z = project2plane_reminder(origin, major);
+        //    
+        //    glm::ivec2 lower_xy = glm::ivec2(glm::floor((project2plane(intersector.triangle_lower, major) - origin_xy) / dps));
+        //    glm::ivec2 upper_xy = glm::ivec2(glm::floor((project2plane(intersector.triangle_upper, major) - origin_xy) / dps));
+        //    lower_xy = glm::max(lower_xy, glm::ivec2(0, 0));
+        //    upper_xy = glm::min(upper_xy, glm::ivec2(gridRes - 1, gridRes - 1));
+
+        //    glm::vec2 v0_xy = project2plane( v0, major );
+        //    float v0_z = project2plane_reminder( v0, major);
+
+        //    glm::vec2 n_xy = project2plane(intersector.n, major);
+        //    float n_z = project2plane_reminder(intersector.n, major);
+
+        //    float kx = -n_xy.x / n_z;
+        //    float ky = -n_xy.y / n_z;
+        //    float constant_max =
+        //        - kx * v0_xy.x
+        //        - ky * v0_xy.y
+        //        + v0_z
+        //        + dps * ( glm::max(kx, 0.0f) + glm::max(ky, 0.0f) );
+        //    float constant_min = 
+        //        - kx * v0_xy.x 
+        //        - ky * v0_xy.y
+        //        + v0_z
+        //        + dps * ( glm::min( kx, 0.0f ) + glm::min(ky, 0.0f) );
+
+        //    for( int x = lower_xy.x; x <= upper_xy.x ; x++ )
+        //    for( int y = lower_xy.y; y <= upper_xy.y ; y++ )
+        //    {
+        //        glm::vec2 o_xy = origin_xy + glm::vec2( dps * x, dps * y );
+
+        //        float var = kx * o_xy.x + ky * o_xy.y;
+        //        float tmax = var + constant_max;
+        //        float tmin = var + constant_min;
+
+        //        int lowerz = (int)(glm::floor((tmin - origin_z) / dps));
+        //        int upperz = (int)(glm::floor((tmax - origin_z) / dps));
+
+        //        lowerz = glm::max( lowerz, 0 );
+        //        upperz = glm::min( upperz, gridRes - 1);
+        //        for (int z = lowerz; z <= upperz; z++)
+        //        {
+        //            glm::vec3 p = unProjectPlane(o_xy, origin_z + (float)z * dps, major);
+
+        //            bool overlap = intersector.intersect(p, dps);
+        //            if (overlap)
+        //            {
+        //                DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+        //            }
+        //        }
+        //    }
+        }
 #endif
 
         //glm::vec3 e01 = v1 - v0;
@@ -568,6 +834,10 @@ int main() {
         ImGui::InputFloat("dps", &dps, 0.01f);
         ImGui::InputInt("gridRes", &gridRes);
         ImGui::Checkbox("sixSeparating", &sixSeparating);
+        ImGui::Checkbox("betterCulling", &betterCulling);
+        ImGui::Text("voxel: %f s", voxel_time);
+
+        
         ImGui::End();
 
         EndImGui();
