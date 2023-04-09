@@ -110,7 +110,7 @@ glm::ivec3 unProjectPlane(glm::ivec2 p, int reminder, int axis)
     return glm::ivec3(0, 0, 0);
 }
 
-//static bool planeVoxelTest = true;
+static bool experiment = true;
 
 struct VoxelTriangleIntersector
 {
@@ -333,8 +333,10 @@ struct VoxelTriangleVisitor
         if( sixSeparating )
         {
             float tsix = var + constant_six;
-            int z = (int)ss_floor( (tsix - origin_z) / dps );
-            lowerz = z;
+            float indexf = ( tsix - origin_z ) / dps;
+            float zf = ss_floor(indexf);
+            int z = (int)zf;
+            lowerz = indexf == zf ? z - 1 : z;
             upperz = z;
         }
         else
@@ -861,7 +863,7 @@ int main() {
         ImGui::InputFloat("dps", &dps, 0.01f);
         ImGui::InputInt("gridRes", &gridRes);
         ImGui::Checkbox("sixSeparating", &sixSeparating);
-        //ImGui::Checkbox("planeVoxelTest", &planeVoxelTest);
+        ImGui::Checkbox("experiment", &experiment);
         ImGui::Text("voxel: %f s", voxel_time);
         
         ImGui::End();
