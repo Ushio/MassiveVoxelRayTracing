@@ -188,20 +188,7 @@ struct VoxelTriangleIntersector
         }
     }
 
-    bool intersect2dMajor(glm::vec2 p_proj, int axis) const
-    {
-        for (int edge = 0; edge < 3; edge++)
-        {
-            float d = glm::dot(nes[axis][edge], p_proj) + d_consts[axis][edge];
-            if (d < 0.0f)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool intersect( glm::vec3 p, float dps, int skipAxis ) const
+    bool intersect( glm::vec3 p, float dps ) const
     {
         float PoN = glm::dot(p, n);
         if (0.0f < (PoN + d1) * (PoN + d2))
@@ -218,11 +205,6 @@ struct VoxelTriangleIntersector
         // projection test
         for (int axis = 0; axis < 3 ; axis++)
         {
-            if (axis == skipAxis)
-            {
-                continue;
-            }
-
             glm::vec2 p_proj = project2plane(p, axis);
             for (int edge = 0; edge < 3; edge++)
             {
@@ -239,7 +221,15 @@ struct VoxelTriangleIntersector
 
 float ss_floor( float value )
 {
-    return _mm_cvtss_si32(_mm_floor_ss(_mm_setzero_ps(), _mm_set_ss(value)));
+    float d;
+    _mm_store_ss(&d, _mm_floor_ss(_mm_setzero_ps(), _mm_set_ss(value)));
+    return d;
+}
+float ss_ceil(float value)
+{
+    float d;
+    _mm_store_ss(&d, _mm_ceil_ss(_mm_setzero_ps(), _mm_set_ss(value)));
+    return d;
 }
 glm::vec2 ss_floor(glm::vec2 x)
 {
@@ -294,6 +284,34 @@ struct VoxelTriangleVisitor
             + dps * (glm::min(kx, 0.0f) + glm::min(ky, 0.0f));
     }
 
+    glm::ivec2 yRangeInclusive( const VoxelTriangleIntersector& intersector, int x, float dps )const
+    {
+        float xcoord = origin_xy.x + x * dps;
+        float miny = -FLT_MAX;
+        float maxy = FLT_MAX;
+        for (int edge = 0; edge < 3; edge++)
+        {
+            glm::vec2 ne = intersector.nes[major][edge];
+            if( glm::abs(ne.y) < FLT_EPSILON )
+            {
+                continue;
+            }
+
+            float k = -(xcoord * ne.x + intersector.d_consts[major][edge]) / ne.y;
+            if (0.0f <= ne.y)
+            {
+                miny = glm::max( miny, k );
+            }
+            else
+            {
+                maxy = glm::min( maxy, k );
+            }
+        }
+        int lowerY = glm::max((int)ss_ceil((miny - origin_xy.y) / dps), lower_xy.y);
+        int upperY = glm::min((int)ss_floor((maxy - origin_xy.y) / dps), upper_xy.y);
+        return glm::ivec2( lowerY, upperY );
+    }
+
     glm::ivec2 zRangeInclusive( int x, int y, float dps, int gridRes )const
     {
         glm::vec2 o_xy = p_projMajor(x, y, dps);
@@ -304,8 +322,11 @@ struct VoxelTriangleVisitor
 
         int lowerz = (int)(ss_floor((tmin - origin_z) / dps));
         int upperz = (int)(ss_floor((tmax - origin_z) / dps));
+
+        // to limit the range inside the grid
         lowerz = glm::max( lowerz, 0 );
         upperz = glm::min( upperz, gridRes - 1);
+        
         return glm::ivec2( lowerz, upperz );
     }
     glm::vec3 p( int x, int y, int reminder, float dps ) const
@@ -441,7 +462,6 @@ int main() {
             Stopwatch voxelsw;
 
             glm::vec3 origin = lower;
-
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 glm::vec3 v0 = positions[indices[i * 3]];
@@ -474,27 +494,25 @@ int main() {
 #else
                 VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
                 for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
-                for (int y = visitor.lower_xy.y; y <= visitor.upper_xy.y; y++)
                 {
-                    if (intersector.intersect2dMajor(visitor.p_projMajor(x, y, dps), visitor.major) == false)
+                    glm::ivec2 yrange = visitor.yRangeInclusive(intersector, x, dps );
+                    for (int y = yrange.x; y <= yrange.y; y++)
                     {
-                        continue;
-                    }
-
-                    glm::ivec2 zrange = visitor.zRangeInclusive( x, y, dps, gridRes );
-                    for (int z = zrange.x; z <= zrange.y; z++)
-                    {
-                        glm::vec3 p = visitor.p( x, y, z, dps );
-                        bool overlap = intersector.intersect(p, dps, visitor.major );
-                        if (overlap)
+                        glm::ivec2 zrange = visitor.zRangeInclusive(x, y, dps, gridRes );
+                        for (int z = zrange.x; z <= zrange.y; z++)
                         {
-                            // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
-                            glm::ivec3 c = unProjectPlane(glm::ivec2(x,y), z, visitor.major);
-                            SequencialHasher h;
-                            h.add(c.x, gridRes);
-                            h.add(c.y, gridRes);
-                            h.add(c.z, gridRes);
-                            voxels[h.value()] = 1;
+                            glm::vec3 p = visitor.p(x, y, z, dps);
+                            bool overlap = intersector.intersect(p, dps);
+                            if (overlap)
+                            {
+                                // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                                glm::ivec3 c = unProjectPlane(glm::ivec2(x, y), z, visitor.major);
+                                SequencialHasher h;
+                                h.add(c.x, gridRes);
+                                h.add(c.y, gridRes);
+                                h.add(c.z, gridRes);
+                                voxels[h.value()] = 1;
+                            }
                         }
                     }
                 }
@@ -521,11 +539,11 @@ int main() {
         });
 #endif
 
-        static bool betterCulling = false;
+        static bool betterCulling = true;
 
 #if 0
         float unit = 1.0f;
-        static glm::vec3 v0 = { -unit, -unit, 0.0f };
+        static glm::vec3 v0 = { -unit, -unit - 0.3f, 0.0f };
         static glm::vec3 v1 = { unit , -unit, 0.0f };
         static glm::vec3 v2 = { -unit,  unit, 0.0f };
 
@@ -562,7 +580,7 @@ int main() {
             for( int z = lower.z; z <= upper.z ; z++ )
             {
                 glm::vec3 p = origin + glm::vec3( x, y, z ) * dps;
-                bool overlap = intersector.intersect( p, dps, -1 );
+                bool overlap = intersector.intersect( p, dps );
                 if (overlap)
                 {
                     DrawAABB(p, p + glm::vec3(dps, dps, dps), {200 ,200 ,200});
@@ -579,26 +597,24 @@ int main() {
 
         // float t = glm::dot(v0 - projp, intersector.n) / intersector.n.z;
         // DrawSphere({ projp.x, projp.y, projp.z + t }, 0.02f, { 255,255,0 });
-
-        if ( betterCulling )
+        
+        if (betterCulling)
         {
             VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
             for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
-            for (int y = visitor.lower_xy.y; y <= visitor.upper_xy.y; y++)
             {
-                if (intersector.intersect2dMajor(visitor.p_projMajor(x, y, dps), visitor.major) == false)
+                glm::ivec2 yrange = visitor.yRangeInclusive( intersector, x, dps );
+                for (int y = yrange.x; y <= yrange.y ; y++ )
                 {
-                    continue;
-                }
-
-                glm::ivec2 zrange = visitor.zRangeInclusive( x, y, dps, gridRes );
-                for (int z = zrange.x; z <= zrange.y; z++)
-                {
-                    glm::vec3 p = visitor.p( x, y, z, dps );
-                    bool overlap = intersector.intersect(p, dps, visitor.major);
-                    if (overlap)
+                    glm::ivec2 zrange = visitor.zRangeInclusive(x, y, dps, gridRes );
+                    for (int z = zrange.x; z <= zrange.y; z++)
                     {
-                        DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                        glm::vec3 p = visitor.p(x, y, z, dps);
+                        bool overlap = intersector.intersect(p, dps );
+                        if (overlap)
+                        {
+                            DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+                        }
                     }
                 }
             }
