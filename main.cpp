@@ -11,11 +11,11 @@ glm::vec2 project2plane(glm::vec3 p, int axis)
         r.x = p.x;
         r.y = p.y;
         break;
-    case 1: // y axis
+    case 1: // x axis
         r.x = p.y;
         r.y = p.z;
         break;
-    case 2: // x axis
+    case 2: // y axis
         r.x = p.z;
         r.y = p.x;
         break;
@@ -131,16 +131,16 @@ struct VoxelTriangleIntersector
         glm::vec3 e12 = v2 - v1;
         n = glm::cross(e01, e12);
 
-        glm::vec3 dp = glm::vec3(dps, dps, dps);
+        //glm::vec3 dp = glm::vec3(dps, dps, dps);
 
         triangle_lower = glm::min(glm::min(v0, v1), v2);
         triangle_upper = glm::max(glm::max(v0, v1), v2);
 
-        glm::vec3 c = glm::vec3(
-            0.0f < n.x ? dps : 0.0f,
-            0.0f < n.y ? dps : 0.0f,
-            0.0f < n.z ? dps : 0.0f
-        );
+        //glm::vec3 c = glm::vec3(
+        //    0.0f < n.x ? dps : 0.0f,
+        //    0.0f < n.y ? dps : 0.0f,
+        //    0.0f < n.z ? dps : 0.0f
+        //);
 
         // Plane-Voxel test. This is handled by zRangeInclusive
         //if (sixSeparating == false)
@@ -204,10 +204,10 @@ struct VoxelTriangleIntersector
         // }
 
         // bbox test for a corner case
-        if (overlapAABB(p, p + glm::vec3( dps, dps, dps ), triangle_lower, triangle_upper) == false)
-        {
-            return false;
-        }
+        //if (overlapAABB(p, p + glm::vec3( dps, dps, dps ), triangle_lower, triangle_upper) == false)
+        //{
+        //    return false;
+        //}
 
         // projection test
         for (int axis = 0; axis < 3 ; axis++)
@@ -261,6 +261,8 @@ struct VoxelTriangleVisitor
     float origin_z;
     glm::ivec2 lower_xy;
     glm::ivec2 upper_xy;
+    int bbox_lower_z;
+    int bbox_upper_z;
 
     VoxelTriangleVisitor( glm::vec3 origin, glm::vec3 triangle_lower, glm::vec3 triangle_upper, glm::vec3 v0, glm::vec3 n, float dps, int gridRes )
     {
@@ -268,10 +270,17 @@ struct VoxelTriangleVisitor
         origin_xy = project2plane(origin, major);
         origin_z = project2plane_reminder(origin, major);
 
-        lower_xy = glm::ivec2(ss_floor((project2plane(triangle_lower, major) - origin_xy) / dps));
-        upper_xy = glm::ivec2(ss_floor((project2plane(triangle_upper, major) - origin_xy) / dps));
-        lower_xy = glm::max(lower_xy, glm::ivec2(0, 0));
-        upper_xy = glm::min(upper_xy, glm::ivec2(gridRes - 1, gridRes - 1));
+        //lower_xy = glm::ivec2(ss_floor((project2plane(triangle_lower, major) - origin_xy) / dps));
+        //upper_xy = glm::ivec2(ss_floor((project2plane(triangle_upper, major) - origin_xy) / dps));
+        //lower_xy = glm::max(lower_xy, glm::ivec2(0, 0));
+        //upper_xy = glm::min(upper_xy, glm::ivec2(gridRes - 1, gridRes - 1));
+
+        glm::ivec3 lower = glm::ivec3(ss_floor((triangle_lower - origin) / dps));
+        glm::ivec3 upper = glm::ivec3(ss_floor((triangle_upper - origin) / dps));
+        lower_xy = project2plane(lower, major);
+        upper_xy = project2plane(upper, major);
+        bbox_lower_z = project2plane_reminder(lower, major);
+        bbox_upper_z = project2plane_reminder(upper, major);
 
         glm::vec2 v0_xy = project2plane(v0, major);
         float v0_z = project2plane_reminder(v0, major);
@@ -301,13 +310,13 @@ struct VoxelTriangleVisitor
         for (int edge = 0; edge < 3; edge++)
         {
             glm::vec2 ne = intersector.nes[major][edge];
-            if( glm::abs(ne.y) < FLT_EPSILON )
+            float numerator = -(xcoord * ne.x + intersector.d_consts[major][edge]);
+            if( numerator == 0.0f && ne.y == 0.0f )
             {
-                continue;
+                return glm::ivec2( 1, -1 );
             }
-
             float k = -(xcoord * ne.x + intersector.d_consts[major][edge]) / ne.y;
-            if (0.0f <= ne.y)
+            if( 0.0f <= ne.y )
             {
                 miny = glm::max( miny, k );
             }
@@ -315,6 +324,11 @@ struct VoxelTriangleVisitor
             {
                 maxy = glm::min( maxy, k );
             }
+        }
+
+        if( maxy < miny )
+        {
+            return glm::ivec2( 1, -1);
         }
         int lowerY = glm::max((int)ss_ceil((miny - origin_xy.y) / dps), lower_xy.y);
         int upperY = glm::min((int)ss_floor((maxy - origin_xy.y) / dps), upper_xy.y);
@@ -347,9 +361,8 @@ struct VoxelTriangleVisitor
             upperz = (int)(ss_floor((tmax - origin_z) / dps));
         }
 
-        // to limit the range inside the grid
-        lowerz = glm::max( lowerz, 0 );
-        upperz = glm::min( upperz, gridRes - 1);
+        lowerz = glm::max( lowerz, bbox_lower_z );
+        upperz = glm::min( upperz, bbox_upper_z );
         
         return glm::ivec2( lowerz, upperz );
     }
