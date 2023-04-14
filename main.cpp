@@ -122,8 +122,10 @@ struct VoxelTriangleIntersector
     // float d1;
     // float d2;
 
-    float d_consts[3 /*axis*/][3 /*edge*/];
+    float d_consts[3 /*axis*/][4 /*edge*/];
     glm::vec2 nes[3 /*axis*/][3 /*edge*/];
+    float nesx[3][4];
+    float nesy[3][4];
 
     VoxelTriangleIntersector( glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, bool sixSeparating, float dps )
     {
@@ -176,6 +178,8 @@ struct VoxelTriangleIntersector
                     ne = -ne;
                 }
                 nes[axis][edge] = ne;
+                nesx[axis][edge] = ne.x;
+                nesy[axis][edge] = ne.y;
 
                 float d_const;
                 if (sixSeparating == false)
@@ -212,11 +216,39 @@ struct VoxelTriangleIntersector
         // projection test
         for (int axis = 0; axis < 3 ; axis++)
         {
+            //if (axis == major)
+            //    continue;
+
+            //glm::vec2 p_proj = project2plane(p, axis);
+            //for (int edge = 0; edge < 3; edge++)
+            //{
+            //    float d = glm::dot(nes[axis][edge], p_proj) + d_consts[axis][edge];
+            //    if( d < 0.0f )
+            //    {
+            //        return false;
+            //    }
+            //}
+
             glm::vec2 p_proj = project2plane(p, axis);
+            //__m128 _p_projx = _mm_set1_ps(p_proj.x);
+            //__m128 _p_projy = _mm_set1_ps(p_proj.y);
+            //__m128 _nesx = _mm_loadu_ps( &nesx[axis][0] );
+            //__m128 _nesy = _mm_loadu_ps( &nesy[axis][0] );
+            //__m128 _d = _mm_loadu_ps(&d_consts[axis][0]);
+            //_d = _mm_fmadd_ps(_nesx, _p_projx, _d);
+            //_d = _mm_fmadd_ps(_nesy, _p_projy, _d);
+            //__m128 zero = _mm_setzero_ps();
+            //__m128 mask = _mm_cmple_ss(_d, zero);
+            //int result = _mm_movemask_ps( mask );
+            //if (result & 0x7)
+            //{
+            //    return false;
+            //}
+
             for (int edge = 0; edge < 3; edge++)
             {
                 float d = glm::dot(nes[axis][edge], p_proj) + d_consts[axis][edge];
-                if( d < 0.0f )
+                if (d < 0.0f)
                 {
                     return false;
                 }
@@ -377,6 +409,263 @@ struct VoxelTriangleVisitor
     }
 };
 
+struct VTContext
+{
+    // glm::vec2 origin_xy;
+    // float origin_z;
+    int major;
+    bool flip_xy;
+
+    glm::ivec2 lower_xy;
+    glm::ivec2 upper_xy;
+    int lower_z;
+    int upper_z;
+
+    float d_consts[3 /*axis*/][3 /*edge*/];
+    float nesx[3][3];
+    float nesy[3][3];
+
+    glm::vec2 origin_xy;
+    float origin_z;
+
+    float kx;
+    float ky;
+    float constant_max;
+    float constant_min;
+    float constant_six;
+
+    VTContext( glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, bool sixSeparating, glm::vec3 origin, float dps, int gridRes )
+    {
+        glm::vec3 e01 = v1 - v0;
+        glm::vec3 e12 = v2 - v1;
+        glm::vec3 n = glm::cross(e01, e12);
+        major = majorAxis(n);
+
+        // glm::vec2 n_xy = project2plane(n, major);
+        // float n_z = project2plane_reminder(n, major);
+
+        glm::vec3 bbox_lower = glm::min(glm::min(v0, v1), v2);
+        glm::vec3 bbox_upper = glm::max(glm::max(v0, v1), v2);
+        glm::ivec3 lower = glm::ivec3(ss_floor((bbox_lower - origin) / dps));
+        glm::ivec3 upper = glm::ivec3(ss_floor((bbox_upper - origin) / dps));
+        lower = glm::max(lower, glm::ivec3(0, 0, 0));
+        upper = glm::min(upper, glm::ivec3(gridRes - 1, gridRes - 1, gridRes - 1));
+
+        lower_xy = project2plane(lower, major);
+        upper_xy = project2plane(upper, major);
+        lower_z = project2plane_reminder(lower, major);
+        upper_z = project2plane_reminder(upper, major);
+
+        int w = upper_xy.x - lower_xy.x;
+        int h = upper_xy.y - lower_xy.y;
+        flip_xy = h < w;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            glm::vec2 dp_proj = glm::vec2(dps, dps);
+            glm::vec2 vs_proj[3] = {
+                project2plane(v0, axis),
+                project2plane(v1, axis),
+                project2plane(v2, axis),
+            };
+            float reminder = project2plane_reminder(n, axis);
+            float n_sign = 0.0f < reminder ? 1.0f : -1.0f;
+
+            for (int edge = 0; edge < 3; edge++)
+            {
+                glm::vec2 a = vs_proj[edge];
+                glm::vec2 b = vs_proj[(edge + 1) % 3];
+                glm::vec2 e = b - a;
+                glm::vec2 ne = glm::vec2(-e.y, e.x) * n_sign;
+                nesx[axis][edge] = ne.x;
+                nesy[axis][edge] = ne.y;
+
+                float d_const;
+                if (sixSeparating == false)
+                {
+                    d_const = glm::max(ne.x * dp_proj.x, 0.0f)
+                        + glm::max(ne.y * dp_proj.y, 0.0f)
+                        - glm::dot(ne, a);
+                }
+                else
+                {
+                    d_const = glm::dot(ne, dp_proj * 0.5f - a)
+                        + 0.5f * dps * glm::max(glm::abs(ne.x), glm::abs(ne.y));
+                }
+                d_consts[axis][edge] = d_const;
+            }
+        }
+
+        origin_xy = project2plane(origin, major);
+        origin_z = project2plane_reminder(origin, major);
+
+        glm::vec2 v0_xy = project2plane(v0, major);
+        float v0_z = project2plane_reminder(v0, major);
+
+        glm::vec2 n_xy = project2plane(n, major);
+        float n_z = project2plane_reminder(n, major);
+
+        kx = -n_xy.x / n_z;
+        ky = -n_xy.y / n_z;
+        float K = -kx * v0_xy.x - ky * v0_xy.y + v0_z;
+        constant_max =
+            K
+            + dps * (glm::max(kx, 0.0f) + glm::max(ky, 0.0f));
+        constant_min =
+            K
+            + dps * (glm::min(kx, 0.0f) + glm::min(ky, 0.0f));
+        constant_six =
+            K
+            + 0.5f * dps * (kx + ky);
+    }
+    glm::ivec2 xRangeInclusive() const
+    {
+        if( flip_xy )
+        {
+            return { lower_xy.y, upper_xy.y };
+        }
+        return { lower_xy.x, upper_xy.x };
+    }
+
+    glm::ivec2 yRangeInclusive( int x, float dps ) const
+    {
+        float xcoord = ( flip_xy ? origin_xy.y : origin_xy.x ) + x * dps;
+
+        float miny = -FLT_MAX; // valid int cast min
+        float maxy = FLT_MAX;  // valid int cast max
+        for (int edge = 0; edge < 3; edge++)
+        {
+            float nex = nesx[major][edge];
+            float ney = nesy[major][edge];
+            if( flip_xy )
+            {
+                std::swap( nex, ney );
+            }
+            float d_const = d_consts[major][edge];
+            if( ney == 0.0f )
+            {
+                if( -nex * xcoord <= d_const )
+                {
+                    continue;
+                }
+                else
+                {
+                    return glm::ivec2( -1, 1 );
+                }
+            }
+            float k = -( xcoord * nex + d_const ) / ney;
+            if( 0.0f <= ney )
+            {
+                miny = glm::max( miny, k );
+            }
+            else
+            {
+                maxy = glm::min( maxy, k );
+            }
+        }
+
+        float oy = flip_xy ? origin_xy.x : origin_xy.y;
+        float minIndexF = glm::max( (miny - oy) / dps, -2147483648.0f /* valid int cast min */);
+        float maxIndexF = glm::min( (maxy - oy) / dps, 2147483520.0f /* valid int cast max */ );
+        int lowerY = (int)ss_ceil( minIndexF );
+        int upperY = (int)ss_floor( maxIndexF );
+        lowerY = glm::max(lowerY, flip_xy ? lower_xy.x : lower_xy.y );
+        upperY = glm::min(upperY, flip_xy ? upper_xy.x : upper_xy.y );
+        return glm::ivec2( lowerY, upperY );
+    }
+    glm::ivec2 zRangeInclusive(int x, int y, float dps, int gridRes, bool sixSeparating)const
+    {
+        if (flip_xy)
+        {
+            std::swap(x, y);
+        }
+        glm::vec2 o_xy = origin_xy + glm::vec2(dps * x, dps * y);
+        float var = kx * o_xy.x + ky * o_xy.y;
+
+        int lowerz;
+        int upperz;
+
+        if( sixSeparating )
+        {
+            float tsix = var + constant_six;
+            float indexf = (tsix - origin_z) / dps;
+            float zf = ss_floor(indexf);
+            int z = (int)zf;
+            lowerz = indexf == zf ? z - 1 : z;
+            upperz = z;
+        }
+        else
+        {
+            float tmax = var + constant_max;
+            float tmin = var + constant_min;
+            lowerz = (int)(ss_floor((tmin - origin_z) / dps));
+            upperz = (int)(ss_floor((tmax - origin_z) / dps));
+        }
+
+        lowerz = glm::max( lowerz, lower_z );
+        upperz = glm::min( upperz, upper_z );
+
+        return glm::ivec2(lowerz, upperz);
+        // return glm::ivec2( lower_z, upper_z );
+    }
+    glm::vec3 p( int x, int y, int z, float dps ) const
+    {
+        if( flip_xy )
+        {
+            std::swap( x, y );
+        }
+        glm::vec2 p_proj = origin_xy + glm::vec2( dps * x, dps * y );
+        float reminder = origin_z + (float)z * dps;
+        return unProjectPlane(p_proj, reminder, major );
+    }
+    glm::ivec3 i( int x, int y, int z ) const
+    {
+        if (flip_xy)
+        {
+            std::swap(x, y);
+        }
+        return unProjectPlane(glm::ivec2(x, y), z, major);
+    }
+
+    bool intersect( glm::vec3 p, float dps ) const
+    {
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (axis == major)
+                continue;
+
+            glm::vec2 p_proj = project2plane( p, axis );
+
+            //__m128 _p_projx = _mm_set1_ps(p_proj.x);
+            //__m128 _p_projy = _mm_set1_ps(p_proj.y);
+            //__m128 _nesx = _mm_loadu_ps( &nesx[axis][0] );
+            //__m128 _nesy = _mm_loadu_ps( &nesy[axis][0] );
+            //__m128 _d = _mm_loadu_ps(&d_consts[axis][0]);
+            //_d = _mm_fmadd_ps(_nesx, _p_projx, _d);
+            //_d = _mm_fmadd_ps(_nesy, _p_projy, _d);
+            //__m128 zero = _mm_setzero_ps();
+            //__m128 mask = _mm_cmple_ss(_d, zero);
+            //int result = _mm_movemask_ps( mask );
+            //if (result & 0x7)
+            //{
+            //    return false;
+            //}
+
+            for (int edge = 0; edge < 3; edge++)
+            {
+                float nex = nesx[axis][edge];
+                float ney = nesy[axis][edge];
+                float d = nex * p_proj.x + ney * p_proj.y + d_consts[axis][edge];
+                if (d < 0.0f)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
 class SequencialHasher
 {
 public:
@@ -449,6 +738,7 @@ int main() {
                 pr::PrimVertex(p, { color });
             }
             int indexBase = 0;
+
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 int nVerts = faceCounts[i];
@@ -467,6 +757,7 @@ int main() {
 
             glm::vec3 lower = glm::vec3( FLT_MAX, FLT_MAX, FLT_MAX );
             glm::vec3 upper = glm::vec3( -FLT_MAX, -FLT_MAX, -FLT_MAX );
+
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 for (int j = 0; j < 3; ++j)
@@ -499,13 +790,15 @@ int main() {
             Stopwatch voxelsw;
 
             glm::vec3 origin = lower;
+
+            for (int k = 0; k < 100; k++)
             for (int i = 0; i < faceCounts.count(); i++)
             {
                 glm::vec3 v0 = positions[indices[i * 3]];
                 glm::vec3 v1 = positions[indices[i * 3 + 1]];
                 glm::vec3 v2 = positions[indices[i * 3 + 2]];
 
-                VoxelTriangleIntersector intersector(v0, v1, v2, sixSeparating, dps);
+                // VoxelTriangleIntersector intersector(v0, v1, v2, sixSeparating, dps);
 
 #if 0
                 glm::ivec3 lower = glm::ivec3(ss_floor((intersector.triangle_lower - origin) / dps));
@@ -529,6 +822,7 @@ int main() {
                     }
                 }
 #else
+                /*
                 VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
                 for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
                 {
@@ -539,11 +833,36 @@ int main() {
                         for (int z = zrange.x; z <= zrange.y; z++)
                         {
                             glm::vec3 p = visitor.p(x, y, z, dps);
-                            bool overlap = intersector.intersect(p, dps);
+                            bool overlap = intersector.intersect(p, dps, visitor.major);
                             if (overlap)
                             {
                                 // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
                                 glm::ivec3 c = unProjectPlane(glm::ivec2(x, y), z, visitor.major);
+                                SequencialHasher h;
+                                h.add(c.x, gridRes);
+                                h.add(c.y, gridRes);
+                                h.add(c.z, gridRes);
+                                voxels[h.value()] = 1;
+                            }
+                        }
+                    }
+                }
+                */
+
+                VTContext context(v0, v1, v2, sixSeparating, origin, dps, gridRes);
+                glm::ivec2 xrange = context.xRangeInclusive();
+                for (int x = xrange.x; x <= xrange.y; x++)
+                {
+                    glm::ivec2 yrange = context.yRangeInclusive(x, dps);
+                    for (int y = yrange.x; y <= yrange.y; y++)
+                    {
+                        glm::ivec2 zrange = context.zRangeInclusive(x, y, dps, gridRes, sixSeparating);
+                        for (int z = zrange.x; z <= zrange.y; z++)
+                        {
+                            glm::vec3 p = context.p(x, y, z, dps);
+                            if (context.intersect(p, dps))
+                            {
+                                glm::ivec3 c = context.i(x, y, z);
                                 SequencialHasher h;
                                 h.add(c.x, gridRes);
                                 h.add(c.y, gridRes);
@@ -602,7 +921,7 @@ int main() {
         ManipulatePosition( camera, &origin, 1 );
         DrawAABB(origin, origin + glm::vec3(dps, dps, dps) * (float)gridRes, { 255 ,0 ,0 });
 
-        VoxelTriangleIntersector intersector( v0, v1, v2, sixSeparating, dps );
+        // VoxelTriangleIntersector intersector( v0, v1, v2, sixSeparating, dps );
         
 #if 0
         {
@@ -634,21 +953,37 @@ int main() {
         // float t = glm::dot(v0 - projp, intersector.n) / intersector.n.z;
         // DrawSphere({ projp.x, projp.y, projp.z + t }, 0.02f, { 255,255,0 });
         
-        VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
-        for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
+        //VoxelTriangleVisitor visitor(origin, intersector.triangle_lower, intersector.triangle_upper, v0, intersector.n, dps, gridRes );
+        //for (int x = visitor.lower_xy.x; x <= visitor.upper_xy.x; x++)
+        //{
+        //    glm::ivec2 yrange = visitor.yRangeInclusive( intersector, x, dps );
+        //    for (int y = yrange.x; y <= yrange.y ; y++ )
+        //    {
+        //        glm::ivec2 zrange = visitor.zRangeInclusive(x, y, dps, gridRes, sixSeparating );
+        //        for (int z = zrange.x; z <= zrange.y; z++)
+        //        {
+        //            glm::vec3 p = visitor.p(x, y, z, dps);
+        //            bool overlap = intersector.intersect( p, dps );
+        //            if (overlap)
+        //            {
+        //                DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
+        //            }
+        //        }
+        //    }
+        //}
+
+        VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
+        glm::ivec2 xrange = context.xRangeInclusive();
+        for( int x = xrange.x; x <= xrange.y; x++ )
         {
-            glm::ivec2 yrange = visitor.yRangeInclusive( intersector, x, dps );
-            for (int y = yrange.x; y <= yrange.y ; y++ )
+            glm::ivec2 yrange = context.yRangeInclusive( x, dps );
+            for( int y = yrange.x; y <= yrange.y; y++ )
             {
-                glm::ivec2 zrange = visitor.zRangeInclusive(x, y, dps, gridRes, sixSeparating );
+                glm::ivec2 zrange = context.zRangeInclusive(x, y, dps, gridRes, sixSeparating);
                 for (int z = zrange.x; z <= zrange.y; z++)
                 {
-                    glm::vec3 p = visitor.p(x, y, z, dps);
-                    bool overlap = intersector.intersect(p, dps );
-                    if (overlap)
-                    {
-                        DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
-                    }
+                    glm::vec3 p = context.p(x, y, z, dps);
+                    DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
                 }
             }
         }
