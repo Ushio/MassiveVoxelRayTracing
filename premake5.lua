@@ -1,6 +1,6 @@
 include "libs/PrLib"
 
-workspace "HogeProject"
+workspace "Voxelization"
     location "build"
     configurations { "Debug", "Release" }
     startproject "main"
@@ -20,7 +20,7 @@ project "main"
     flags { "MultiProcessorCompile", "NoPCH" }
 
     -- Src
-    files { "main.cpp" }
+    files { "main.cpp", "voxelization.hpp" }
 
     -- UTF8
     postbuildcommands { 
