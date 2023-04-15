@@ -18,6 +18,61 @@
 //    return true;
 //}
 
+// morton max 0x1FFFFF
+
+inline uint64_t encode2mortonCode( uint32_t x, uint32_t y, uint32_t z ) 
+{
+    uint64_t code = 0;
+    for (uint64_t i = 0; i < 64 / 3; ++i ) {
+        code |= 
+            ( (uint64_t)(x & (1u << i)) << (2 * i + 0)) |
+            ( (uint64_t)(y & (1u << i)) << (2 * i + 1)) | 
+            ( (uint64_t)(z & (1u << i)) << (2 * i + 2));
+    }
+    return code;
+}
+
+/*
+* https://www.chessprogramming.org/BMI2
+SRC1   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       │S63│S62│S61│S60│S59│....│ S7│ S6│ S5│ S4│ S3│ S2│ S1│ S0│
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+
+SRC2   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+(mask) │ 0 │ 0 │ 0 │ 1 │ 0 │0...│ 1 │ 0 │ 1 │ 0 │ 0 │ 1 │ 0 │ 0 │  (f.i. 4 bits set)
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+
+DEST   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       │ 0 │ 0 │ 0 │ S3│ 0 │0...│ S2│ 0 │ S1│ 0 │ 0 │ S0│ 0 │ 0 │
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+*/
+
+
+inline uint64_t encode2mortonCode_PDEP( uint32_t x, uint32_t y, uint32_t z )
+{
+    uint64_t code = 
+        _pdep_u64(x & 0x1FFFFF, 0x1249249249249249LLU) |
+        _pdep_u64(y & 0x1FFFFF, 0x1249249249249249LLU << 1) |
+        _pdep_u64(z & 0x1FFFFF, 0x1249249249249249LLU << 2);
+    return code;
+}
+
+// method to seperate bits from a given integer 3 positions apart
+inline uint64_t splitBy3( uint32_t a) {
+    uint64_t x = a & 0x1FFFFF;
+    x = (x | x << 32) & 0x1f00000000ffff; // shift left 32 bits, OR with self, and 00011111000000000000000000000000000000001111111111111111
+    x = (x | x << 16) & 0x1f0000ff0000ff; // shift left 32 bits, OR with self, and 00011111000000000000000011111111000000000000000011111111
+    x = (x | x << 8) & 0x100f00f00f00f00f; // shift left 32 bits, OR with self, and 0001000000001111000000001111000000001111000000001111000000000000
+    x = (x | x << 4) & 0x10c30c30c30c30c3; // shift left 32 bits, OR with self, and 0001000011000011000011000011000011000011000011000011000100000000
+    x = (x | x << 2) & 0x1249249249249249;
+    return x;
+}
+inline uint64_t encode2mortonCode_magicbits(uint32_t x, uint32_t y, uint32_t z) {
+    uint64_t answer = 0;
+    answer |= splitBy3(x) | splitBy3(y) << 1 | splitBy3(z) << 2;
+    return answer;
+}
+
 static bool experiment = true;
 
 class VoxelObjWriter
@@ -164,7 +219,7 @@ int main() {
 
         static double voxel_time = 0.0f;
 
-#if 1
+#if 0
         static bool sixSeparating = true;
         static float dps = 0.1f;
         static glm::vec3 origin = { -2.0f, -2.0f, -2.0f };
@@ -328,6 +383,126 @@ int main() {
             }
         }
 #endif
+        
+
+        //{
+        //    Xoshiro128StarStar random;
+        //    for (int i = 0; i < 1000000000; i++)
+        //    {
+        //        uint32_t x = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t y = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t z = random.uniformi() & 0x1FFFFF; // 21 bits
+
+        //        uint64_t m0 = encode2mortonCode(x, y, z);
+        //        uint64_t m1 = encode2mortonCode_PDEP(x, y, z);
+        //        uint64_t m2 = encode2mortonCode_magicbits(x, y, z);
+        //        PR_ASSERT(m0 == m1);
+        //        PR_ASSERT(m0 == m2);
+        //    }
+        //}
+
+        // perf
+        //{
+        //    uint64_t k = 0;
+        //    Stopwatch sw;
+        //    Xoshiro128StarStar random;
+        //    for (int i = 0; i < 100000000; i++)
+        //    {
+        //        uint32_t x = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t y = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t z = random.uniformi() & 0x1FFFFF; // 21 bits
+
+        //        uint64_t m0 = encode2mortonCode(x, y, z);
+        //        k += m0;
+        //    }
+        //    printf("%f s encode2mortonCode, %lld\n", sw.elapsed(), k);
+        //}
+        //{
+        //    uint64_t k = 0;
+        //    Stopwatch sw;
+        //    Xoshiro128StarStar random;
+        //    for (int i = 0; i < 100000000; i++)
+        //    {
+        //        uint32_t x = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t y = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t z = random.uniformi() & 0x1FFFFF; // 21 bits
+
+        //        uint64_t m0 = encode2mortonCode_magicbits(x, y, z);
+        //        k += m0;
+        //    }
+        //    printf("%f s encode2mortonCode_magicbits, %lld\n", sw.elapsed(), k);
+        //}
+        //{
+        //    uint64_t k = 0;
+        //    Stopwatch sw;
+        //    Xoshiro128StarStar random;
+        //    for (int i = 0; i < 100000000; i++)
+        //    {
+        //        uint32_t x = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t y = random.uniformi() & 0x1FFFFF; // 21 bits
+        //        uint32_t z = random.uniformi() & 0x1FFFFF; // 21 bits
+
+        //        uint64_t m0 = encode2mortonCode_PDEP(x, y, z);
+        //        k += m0;
+        //    }
+        //    printf("%f s encode2mortonCode_PDEP, %lld\n", sw.elapsed(), k);
+        //}
+
+        // morton code
+#if 0
+        static int voxelX = 0;
+        static int voxelY = 0;
+        static int voxelZ = 0;
+
+        glm::vec3 p = { voxelX, voxelY, voxelZ };
+        DrawAABB( p + glm::vec3(0.01f), p + glm::vec3(1.0f, 1.0f, 1.0f) - glm::vec3(0.01f), {255, 255 ,0});
+
+        uint64_t code = encode2mortonCode( voxelX, voxelY, voxelZ );
+
+        static int NDepth = 2;
+
+        float box = (float)( 1u << NDepth );
+        glm::vec3 lower = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 upper = { box, box, box };
+
+        DrawAABB(lower, upper, { 255,255,255 });
+        
+        for ( int i = 0; i < NDepth; i++ )
+        {
+            int s = ( NDepth - i - 1) * 3;
+            uint64_t space = ( code & ( 7LLU << s ) ) >> s;
+
+            box *= 0.5f;
+
+            if (space & 0x01)
+            {
+                lower.x += box;
+            }
+            else
+            {
+                upper.x -= box;
+            }
+
+            if( space & 0x02 )
+            {
+                lower.y += box;
+            }
+            else
+            {
+                upper.y -= box;
+            }
+
+            if (space & 0x04)
+            {
+                lower.z += box;
+            }
+            else
+            {
+                upper.z -= box;
+            }
+            DrawAABB(lower, upper, { 255,255,255 });
+        }
+#endif
 
         PopGraphicState();
         EndCamera();
@@ -337,6 +512,17 @@ int main() {
         ImGui::SetNextWindowSize({ 500, 800 }, ImGuiCond_Once);
         ImGui::Begin("Panel");
         ImGui::Text("fps = %f", GetFrameRate());
+
+
+        //ImGui::InputInt("voxelX", &voxelX);
+        //ImGui::InputInt("voxelY", &voxelY);
+        //ImGui::InputInt("voxelZ", &voxelZ);
+
+        //ImGui::Text("%llu", encode2mortonCode(voxelX, voxelY, voxelZ));
+        //
+        //ImGui::InputInt("NDepth", &NDepth);
+        
+#if 0
         ImGui::InputFloat("dps", &dps, 0.01f);
         ImGui::InputInt("gridRes", &gridRes);
         ImGui::Checkbox("sixSeparating", &sixSeparating);
@@ -355,10 +541,6 @@ int main() {
             ColumnView<int32_t> faceCounts(polymesh->faceCounts());
             ColumnView<int32_t> indices(polymesh->faceIndices());
             ColumnView<glm::vec3> positions(polymesh->positions());
-
-
-            for (int k = 0; k < 10; k++)
-            {
 
             // Assume Triangle
             glm::vec3 lower = glm::vec3(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -426,9 +608,8 @@ int main() {
             }
 
             writer.savePLY(GetDataPath("vox.ply").c_str());
-
-            }
         }
+#endif
         
         ImGui::End();
 
