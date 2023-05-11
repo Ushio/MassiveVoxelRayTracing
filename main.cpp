@@ -77,6 +77,27 @@ inline uint64_t encode2mortonCode_PDEP( uint32_t x, uint32_t y, uint32_t z )
     return code;
 }
 
+/*
+* https://www.chessprogramming.org/BMI2#PEXT
+SRC1   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       │S63│S62│S61│S60│S59│....│ S7│ S6│ S5│ S4│ S3│ S2│ S1│ S0│ 
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+
+SRC2   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+(mask) │ 0 │ 0 │ 0 │ 1 │ 0 │0...│ 1 │ 0 │ 1 │ 0 │ 0 │ 1 │ 0 │ 0 │  (f.i. 4 bits set)
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+
+DEST   ┌───┬───┬───┬───┬───┐    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       │ 0 │ 0 │ 0 │ 0 │ 0 │0...│ 0 │ 0 │ 0 │ 0 │S60│ S7│ S5│ S2│ 
+       └───┴───┴───┴───┴───┘    └───┴───┴───┴───┴───┴───┴───┴───┘
+*/
+inline void decodeMortonCode_PEXT( uint64_t morton, uint32_t* x, uint32_t* y, uint32_t* z )
+{
+    *x = _pext_u64( morton, 0x1249249249249249LLU );
+    *y = _pext_u64( morton, 0x1249249249249249LLU << 1 );
+    *z = _pext_u64( morton, 0x1249249249249249LLU << 2 );
+}
+
 // method to seperate bits from a given integer 3 positions apart
 inline uint64_t splitBy3( uint32_t a) {
     uint64_t x = a & 0x1FFFFF;
@@ -220,26 +241,96 @@ float minElement(float a, float b, float c)
     return glm::min(glm::min(a, b), c);
 }
 
+inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
+{
+    nodes->clear();
+
+    std::vector<OctreeTask> curTasks;
+    for( auto m : mortonVoxels )
+    {
+        OctreeTask task;
+        task.morton = m;
+        task.child = -1;
+        curTasks.push_back(task);
+    }
+    std::vector<OctreeTask> nextTasks;
+
+    while (1 < wide)
+    {
+        std::vector<OctreeTask> sameParent;
+        uint64_t parent = -1;
+
+        auto emit = [&]()
+        {
+            // allocate
+            uint32_t c = nodes->size();
+            nodes->push_back(OctreeNode());
+            (*nodes)[c].mask = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                (*nodes)[c].children[i] = -1;
+            }
+
+            // set child
+            PR_ASSERT(sameParent.size() <= 8);
+            for (int i = 0; i < sameParent.size(); i++)
+            {
+                uint32_t space = sameParent[i].morton & 0x7;
+                (*nodes)[c].mask |= (1 << space) & 0xFF;
+                (*nodes)[c].children[space] = sameParent[i].child;
+            }
+
+            OctreeTask nextTask;
+            nextTask.morton = parent;
+            nextTask.child = c;
+            nextTasks.push_back(nextTask);
+
+            parent = -1;
+            sameParent.clear();
+        };
+
+        for (int i = 0; i < curTasks.size(); i++)
+        {
+            if (parent == -1)
+            {
+                sameParent.push_back(curTasks[i]);
+                parent = curTasks[i].morton >> 3;
+                continue;
+            }
+
+            if (parent == (curTasks[i].morton >> 3))
+            {
+                sameParent.push_back(curTasks[i]);
+            }
+            else
+            {
+                emit();
+                sameParent.push_back(curTasks[i]);
+                parent = curTasks[i].morton >> 3;
+            }
+        }
+
+        if (sameParent.size())
+        {
+            emit();
+        }
+
+        curTasks.clear();
+        std::swap(curTasks, nextTasks);
+
+        wide /= 2;
+    }
+}
+
+
 glm::vec3 g_ro;
 glm::vec3 g_rd;
 
-void octreeTraverse(
+void octreeTraverse_Hero(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
     float tx0, float ty0, float tz0,
     float tx1, float ty1, float tz1, float *t0, float *t1, int depth = 0 )
 {
-    //if (g_rd.x < 0.0f)
-    //{
-    //    std::swap(tx0, tx1);
-    //}
-    //if (g_rd.y < 0.0f)
-    //{
-    //    std::swap(ty0, ty1);
-    //}
-    //if (g_rd.z < 0.0f)
-    //{
-    //    std::swap(tz0, tz1);
-    //}
 
     float tmin = maxElement(tx0, ty0, tz0);
     float tmax = minElement(tx1, ty1, tz1);
@@ -266,28 +357,28 @@ void octreeTraverse(
 
     const OctreeNode& node = nodes[nodeIndex];
     if( node.mask & ( 0x1 ))
-        octreeTraverse(nodes, node.children[0], tx0, ty0, tz0, txM, tyM, tzM, t0, t1 );
+        octreeTraverse_Hero(nodes, node.children[0], tx0, ty0, tz0, txM, tyM, tzM, t0, t1 );
 
     if (node.mask & (0x1 << 1 ))
-        octreeTraverse(nodes, node.children[1], txM, ty0, tz0, tx1, tyM, tzM, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[1], txM, ty0, tz0, tx1, tyM, tzM, t0, t1);
 
     if (node.mask & (0x1 << 2))
-        octreeTraverse(nodes, node.children[2], tx0, tyM, tz0, txM, ty1, tzM, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[2], tx0, tyM, tz0, txM, ty1, tzM, t0, t1);
 
     if (node.mask & (0x1 << 3))
-        octreeTraverse(nodes, node.children[3], txM, tyM, tz0, tx1, ty1, tzM, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[3], txM, tyM, tz0, tx1, ty1, tzM, t0, t1);
 
     if (node.mask & (0x1 << 4))
-        octreeTraverse(nodes, node.children[4], tx0, ty0, tzM, txM, tyM, tz1, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[4], tx0, ty0, tzM, txM, tyM, tz1, t0, t1);
 
     if (node.mask & (0x1 << 5))
-        octreeTraverse(nodes, node.children[5], txM, ty0, tzM, tx1, tyM, tz1, t0, t1, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[5], txM, ty0, tzM, tx1, tyM, tz1, t0, t1, depth + 1);
 
     if (node.mask & (0x1 << 6))
-        octreeTraverse(nodes, node.children[6], tx0, tyM, tzM, txM, ty1, tz1, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[6], tx0, tyM, tzM, txM, ty1, tz1, t0, t1);
         
     if (node.mask & (0x1 << 7))
-        octreeTraverse(nodes, node.children[7], txM, txM, tzM, tx1, ty1, tz1, t0, t1);
+        octreeTraverse_Hero(nodes, node.children[7], txM, txM, tzM, tx1, ty1, tz1, t0, t1);
 }
 
 void drawAABBscaled( glm::vec3 lower, glm::vec3 upper, float scale, glm::u8vec3 color, float lineWidth = 1.0f )
@@ -309,17 +400,16 @@ void octreeTraverseNaive(
     glm::vec3 t1v = (upper - ro) * one_over_rd;
     glm::vec3 tmin = glm::min(t0v, t1v);
     glm::vec3 tmax = glm::max(t0v, t1v);
-    float a = maxElement( tmin.x, tmin.y, tmin.z );
-    float b = minElement( tmax.x, tmax.y, tmax.z );
+    float a = glm::max( 0.0f, maxElement( tmin.x, tmin.y, tmin.z ) );
+    float b = glm::min( *t, minElement( tmax.x, tmax.y, tmax.z ) );
 
-    // TODO 0 <= t
     if( b < a )
     {
         return;
     }
     if( nodeIndex == -1 )
     {
-        if (a < *t)
+        if( a < *t )
         {
             *t = a;
 
@@ -385,12 +475,18 @@ int main() {
     std::string errorMsg;
     std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath(input), errorMsg );
 
+    pr::ITexture* bgTexture = 0;
+
     while (pr::NextFrame() == false) {
         if (IsImGuiUsingMouse() == false) {
             UpdateCameraBlenderLike(&camera);
         }
-
-        ClearBackground(0.1f, 0.1f, 0.1f, 1);
+        if (bgTexture) {
+            ClearBackground(bgTexture);
+        }
+        else {
+            ClearBackground(0.1f, 0.1f, 0.1f, 1);
+        }
 
         BeginCamera(camera);
 
@@ -400,14 +496,14 @@ int main() {
         DrawXYZAxis(1.0f);
 
         static double voxel_time = 0.0f;
-
+        static bool drawVoxelWire = false;
 #if 1
         static bool sixSeparating = true;
         static float dps = 0.1f;
         static glm::vec3 origin = { -2.0f, -2.0f, -2.0f };
-        static int gridRes = 16;
+        static int gridRes = 256;
 
-        static glm::vec3 from = { 5 , 5, 5 };
+        static glm::vec3 from = { 5, 5, 5 };
         static glm::vec3 to = { 0,  0, 0.0f };
 
         ManipulatePosition(camera, &from, 1);
@@ -418,11 +514,13 @@ int main() {
         DrawLine(from, to, { 128 , 128 , 128 });
 
 
-        std::vector<OctreeNode> nodes;
-        glm::vec3 octree_lower;
-        glm::vec3 octree_upper;
+        static std::vector<OctreeNode> nodes;
+        static bool buildVoxels = true;
 
-        scene->visitPolyMesh([&nodes, &octree_lower, &octree_upper](std::shared_ptr<const FPolyMeshEntity> polymesh) {
+        static glm::vec3 octree_lower;
+        static glm::vec3 octree_upper;
+
+        scene->visitPolyMesh([](std::shared_ptr<const FPolyMeshEntity> polymesh) {
             ColumnView<int32_t> faceCounts(polymesh->faceCounts());
             ColumnView<int32_t> indices(polymesh->faceIndices());
             ColumnView<glm::vec3> positions(polymesh->positions());
@@ -452,6 +550,11 @@ int main() {
             pr::PrimEnd();
 
             // Assume Triangle
+
+            if (buildVoxels == false)
+            {
+                return;
+            }
 
             glm::vec3 lower = glm::vec3(FLT_MAX, FLT_MAX, FLT_MAX);
             glm::vec3 upper = glm::vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
@@ -522,101 +625,19 @@ int main() {
             voxel_time = voxelsw.elapsed();
 
             // Draw
-            for (int x = 0; x < gridRes; x++)
-            for (int y = 0; y < gridRes; y++)
-            for (int z = 0; z < gridRes; z++)
+            if( drawVoxelWire )
             {
-                SequencialHasher h;
-                h.add(x, gridRes);
-                h.add(y, gridRes);
-                h.add(z, gridRes);
-                if (voxels[h.value()])
+                for( auto morton : mortonVoxels )
                 {
-                    glm::vec3 p = origin + glm::vec3(x, y, z) * dps;
-                    // DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
-
-                    drawAABBscaled(p, p + glm::vec3(dps, dps, dps), 0.97f, { 200 ,200 ,200 });
+                    glm::uvec3 c;
+                    decodeMortonCode_PEXT( morton, &c.x, &c.y, &c.z );
+                    glm::vec3 p = origin + glm::vec3(c.x, c.y, c.z) * dps;
+                    DrawAABB(p, p + glm::vec3(dps, dps, dps), { 200 ,200 ,200 });
                 }
             }
 
-            uint32_t wide = gridRes;
-
-
-            std::vector<OctreeTask> curTasks;
-            for (auto m : mortonVoxels)
-            {
-                OctreeTask task;
-                task.morton = m;
-                task.child = -1;
-                curTasks.push_back( task );
-            }
-            std::vector<OctreeTask> nextTasks;
-
-            while( 1 < wide )
-            {
-                std::vector<OctreeTask> sameParent;
-                uint64_t parent = -1;
-
-                auto emit = [&]()
-                {
-                    // allocate
-                    uint32_t c = nodes.size(); 
-                    nodes.push_back(OctreeNode());
-                    nodes[c].mask = 0;
-                    for (int i = 0; i < 8; i++)
-                    {
-                        nodes[c].children[i] = -1;
-                    }
-
-                    // set child
-                    PR_ASSERT(sameParent.size() <= 8);
-                    for (int i = 0; i < sameParent.size(); i++)
-                    {
-                        uint32_t space = sameParent[i].morton & 0x7;
-                        nodes[c].mask |= (1 << space) & 0xFF;
-                        nodes[c].children[space] = sameParent[i].child;
-                    }
-
-                    OctreeTask nextTask;
-                    nextTask.morton = parent;
-                    nextTask.child = c;
-                    nextTasks.push_back( nextTask );
-
-                    parent = -1;
-                    sameParent.clear();
-                };
-
-                for (int i = 0; i < curTasks.size(); i++)
-                {
-                    if( parent == -1 )
-                    {
-                        sameParent.push_back(curTasks[i]);
-                        parent = curTasks[i].morton >> 3;
-                        continue;
-                    }
-
-                    if (parent == (curTasks[i].morton >> 3))
-                    {
-                        sameParent.push_back(curTasks[i]);
-                    }
-                    else
-                    {
-                        emit();
-                        sameParent.push_back(curTasks[i]);
-                        parent = curTasks[i].morton >> 3;
-                    }
-                }
-
-                if (sameParent.size())
-                {
-                    emit();
-                }
-
-                curTasks.clear();
-                std::swap(curTasks, nextTasks);
-
-                wide /= 2;
-            }
+            // voxel build
+            buildOctree( &nodes, mortonVoxels, gridRes );
         });
 
         glm::vec3 ro = from;
@@ -651,6 +672,40 @@ int main() {
 
         glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f , nMajor );
         DrawArrow(ro + rd * rt0, ro + rd * rt0 + hitN * 0.1f, 0.01f, { 255,0,0 });
+
+        Image2DRGBA8 image;
+        image.allocate(GetScreenWidth(), GetScreenHeight());
+
+        CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
+
+        ParallelFor(image.height(), [&](int j) 
+        {
+            for (int i = 0; i < image.width(); ++i)
+            {
+                glm::vec3 ro, rd;
+                rayGenerator.shoot(&ro, &rd, i, j, 0.5f, 0.5f);
+                glm::vec3 one_over_rd = glm::vec3(1.0f) / rd;
+
+                float t = FLT_MAX;
+                int nMajor;
+                octreeTraverseNaive(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+
+                if( t != FLT_MAX ) {
+                    glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder(rd, nMajor) < 0.0f ? 1.0f : -1.0f, nMajor);
+                    glm::vec3 color = (hitN + glm::vec3(1.0f)) * 0.5f;
+                    image(i, j) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+                }
+                else 
+                {
+                    image(i, j) = { 0, 0, 0, 255 };
+                }
+            }
+        }
+        );
+        if (bgTexture == nullptr) {
+            bgTexture = CreateTexture();
+        }
+        bgTexture->upload(image);
 #endif
 
 #if 0
@@ -829,8 +884,10 @@ int main() {
         ImGui::SetNextWindowSize({ 500, 800 }, ImGuiCond_Once);
         ImGui::Begin("Panel");
         ImGui::Text("fps = %f", GetFrameRate());
-
-
+        ImGui::Checkbox("drawVoxelWire", &drawVoxelWire);
+        ImGui::Checkbox("buildVoxels", &buildVoxels);
+        ImGui::Text("octree = %d byte", (int)nodes.size() * sizeof( OctreeNode ));
+        
         //ImGui::InputInt("voxelX", &voxelX);
         //ImGui::InputInt("voxelY", &voxelY);
         //ImGui::InputInt("voxelZ", &voxelZ);
