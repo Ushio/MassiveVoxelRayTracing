@@ -373,7 +373,7 @@ glm::vec3 g_rd;
 void octreeTraverse_Hero(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
     float tx0, float ty0, float tz0,
-    float tx1, float ty1, float tz1, float *t, int depth = 0 )
+    float tx1, float ty1, float tz1, float *t, int* nMajor, int depth = 0 )
 {
 
     float tmin = maxElement(tx0, ty0, tz0);
@@ -385,7 +385,24 @@ void octreeTraverse_Hero(
     }
     if( nodeIndex == -1 )
     {
-        *t = glm::min( *t, tmin );
+        // *t = glm::min( *t, tmin );
+        if( tmin < *t )
+        {
+            *t = tmin;
+
+            if (tmin == tx0 )
+            {
+                *nMajor = 1;
+            }
+            else if (tmin == ty0 )
+            {
+                *nMajor = 2;
+            }
+            else
+            {
+                *nMajor = 0;
+            }
+        }
         return;
     }
 
@@ -396,28 +413,28 @@ void octreeTraverse_Hero(
     const OctreeNode& node = nodes[nodeIndex];
 
     if( node.mask & ( 0x1 ))
-        octreeTraverse_Hero(nodes, node.children[0], tx0, ty0, tz0, txM, tyM, tzM, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[0], tx0, ty0, tz0, txM, tyM, tzM, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 1 ))
-        octreeTraverse_Hero(nodes, node.children[1], txM, ty0, tz0, tx1, tyM, tzM, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[1], txM, ty0, tz0, tx1, tyM, tzM, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 2))
-        octreeTraverse_Hero(nodes, node.children[2], tx0, tyM, tz0, txM, ty1, tzM, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[2], tx0, tyM, tz0, txM, ty1, tzM, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 3))
-        octreeTraverse_Hero(nodes, node.children[3], txM, tyM, tz0, tx1, ty1, tzM, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[3], txM, tyM, tz0, tx1, ty1, tzM, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 4))
-        octreeTraverse_Hero(nodes, node.children[4], tx0, ty0, tzM, txM, tyM, tz1, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[4], tx0, ty0, tzM, txM, tyM, tz1, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 5))
-        octreeTraverse_Hero(nodes, node.children[5], txM, ty0, tzM, tx1, tyM, tz1, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[5], txM, ty0, tzM, tx1, tyM, tz1, t, nMajor, depth + 1);
 
     if (node.mask & (0x1 << 6))
-        octreeTraverse_Hero(nodes, node.children[6], tx0, tyM, tzM, txM, ty1, tz1, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[6], tx0, tyM, tzM, txM, ty1, tz1, t, nMajor, depth + 1);
         
     if (node.mask & (0x1 << 7))
-        octreeTraverse_Hero(nodes, node.children[7], txM, tyM, tzM, tx1, ty1, tz1, t, depth + 1);
+        octreeTraverse_Hero(nodes, node.children[7], txM, tyM, tzM, tx1, ty1, tz1, t, nMajor, depth + 1);
 }
 
 
@@ -695,7 +712,8 @@ int main() {
         g_rd = rd;
 
         float rt0 = FLT_MAX;
-        octreeTraverse_Hero( nodes, nodes.size() - 1,  tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, &rt0 );
+        int nMajor;
+        octreeTraverse_Hero( nodes, nodes.size() - 1,  tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, &rt0, &nMajor );
         DrawSphere(ro + rd * rt0, 0.05f, { 255,0,0 });
 
         //float rt0 = FLT_MAX;
@@ -704,8 +722,8 @@ int main() {
 
         //DrawSphere(ro + rd * rt0, 0.01f, { 255,0,0 });
 
-        //glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f , nMajor );
-        //DrawArrow(ro + rd * rt0, ro + rd * rt0 + hitN * 0.1f, 0.01f, { 255,0,0 });
+        glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f , nMajor );
+        DrawArrow(ro + rd * rt0, ro + rd * rt0 + hitN * 0.1f, 0.01f, { 255,0,0 });
 
         //Image2DRGBA8 image;
         //image.allocate(GetScreenWidth(), GetScreenHeight());
