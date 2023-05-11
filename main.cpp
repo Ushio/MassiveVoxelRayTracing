@@ -370,14 +370,16 @@ void drawAABBscaled(glm::vec3 lower, glm::vec3 upper, float scale, glm::u8vec3 c
 glm::vec3 g_ro;
 glm::vec3 g_rd;
 
+
+
 void octreeTraverse_Hero(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
     float tx0, float ty0, float tz0,
     float tx1, float ty1, float tz1, float *t, int* nMajor, int depth = 0 )
 {
 
-    float tmin = maxElement(tx0, ty0, tz0);
-    float tmax = minElement(tx1, ty1, tz1);
+    float tmin = glm::max( 0.0f, maxElement(tx0, ty0, tz0) );
+    float tmax = glm::min( *t, minElement(tx1, ty1, tz1) );
 
     if (!(tmin < tmax))
     {
@@ -385,7 +387,6 @@ void octreeTraverse_Hero(
     }
     if( nodeIndex == -1 )
     {
-        // *t = glm::min( *t, tmin );
         if( tmin < *t )
         {
             *t = tmin;
@@ -436,7 +437,21 @@ void octreeTraverse_Hero(
     if (node.mask & (0x1 << 7))
         octreeTraverse_Hero(nodes, node.children[7], txM, tyM, tzM, tx1, ty1, tz1, t, nMajor, depth + 1);
 }
+void octreeTraverse_Hero(
+    const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
+    glm::vec3 ro,
+    glm::vec3 one_over_rd,
+    glm::vec3 lower,
+    glm::vec3 upper,
+    float* t, int* nMajor, int depth )
+{
+    glm::vec3 t0 = (lower - ro) * one_over_rd;
+    glm::vec3 t1 = (upper - ro) * one_over_rd;
+    glm::vec3 tmin = t0;
+    glm::vec3 tmax = t1;
 
+    octreeTraverse_Hero( nodes, nodeIndex, tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, t, nMajor, depth );
+}
 
 void octreeTraverseNaive(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
@@ -725,39 +740,40 @@ int main() {
         glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f , nMajor );
         DrawArrow(ro + rd * rt0, ro + rd * rt0 + hitN * 0.1f, 0.01f, { 255,0,0 });
 
-        //Image2DRGBA8 image;
-        //image.allocate(GetScreenWidth(), GetScreenHeight());
+        Image2DRGBA8 image;
+        image.allocate(GetScreenWidth(), GetScreenHeight());
 
-        //CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
+        CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
 
-        //ParallelFor(image.height(), [&](int j) 
-        //{
-        //    for (int i = 0; i < image.width(); ++i)
-        //    {
-        //        glm::vec3 ro, rd;
-        //        rayGenerator.shoot(&ro, &rd, i, j, 0.5f, 0.5f);
-        //        glm::vec3 one_over_rd = glm::vec3(1.0f) / rd;
+        ParallelFor(image.height(), [&](int j) 
+        {
+            for (int i = 0; i < image.width(); ++i)
+            {
+                glm::vec3 ro, rd;
+                rayGenerator.shoot(&ro, &rd, i, j, 0.5f, 0.5f);
+                glm::vec3 one_over_rd = glm::vec3(1.0f) / rd;
 
-        //        float t = FLT_MAX;
-        //        int nMajor;
-        //        octreeTraverseNaive(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+                float t = FLT_MAX;
+                int nMajor;
+                //octreeTraverse_Hero(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+                octreeTraverseNaive(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
 
-        //        if( t != FLT_MAX ) {
-        //            glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder(rd, nMajor) < 0.0f ? 1.0f : -1.0f, nMajor);
-        //            glm::vec3 color = (hitN + glm::vec3(1.0f)) * 0.5f;
-        //            image(i, j) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
-        //        }
-        //        else 
-        //        {
-        //            image(i, j) = { 0, 0, 0, 255 };
-        //        }
-        //    }
-        //}
-        //);
-        //if (bgTexture == nullptr) {
-        //    bgTexture = CreateTexture();
-        //}
-        //bgTexture->upload(image);
+                if( t != FLT_MAX ) {
+                    glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder(rd, nMajor) < 0.0f ? 1.0f : -1.0f, nMajor);
+                    glm::vec3 color = (hitN + glm::vec3(1.0f)) * 0.5f;
+                    image(i, j) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+                }
+                else 
+                {
+                    image(i, j) = { 0, 0, 0, 255 };
+                }
+            }
+        }
+        );
+        if (bgTexture == nullptr) {
+            bgTexture = CreateTexture();
+        }
+        bgTexture->upload(image);
 #endif
 
 #if 0
