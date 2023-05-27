@@ -27,6 +27,17 @@ project "main"
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
+    -- embree 4
+    libdirs { "libs/prlib/libs/embree4/lib" }
+    includedirs { "libs/prlib/libs/embree4/include" }
+    links{
+        "embree4",
+        "tbb",
+    }
+    postbuildcommands {
+        "{COPYFILE} ../libs/prlib/libs/embree4/bin/*.dll %{cfg.targetdir}/*.dll",
+    }
+
     -- prlib
     -- setup command
     -- git submodule add https://github.com/Ushio/prlib libs/prlib
