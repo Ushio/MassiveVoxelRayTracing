@@ -370,32 +370,93 @@ void drawAABBscaled(glm::vec3 lower, glm::vec3 upper, float scale, glm::u8vec3 c
 glm::vec3 g_ro;
 glm::vec3 g_rd;
 
-
+void buildMaskList(uint32_t* list, float a, float b, float c)
+{
+    struct Order
+    {
+        uint32_t index0 : 2;
+        uint32_t index1 : 2;
+        uint32_t index2 : 2;
+    };
+    Order order = {};
+    if (a < b)
+    {
+        order.index1++;
+    }
+    else
+    {
+        order.index0++;
+    }
+    if (b < c)
+    {
+        order.index2++;
+    }
+    else
+    {
+        order.index1++;
+    }
+    if (c < a)
+    {
+        order.index0++;
+    }
+    else
+    {
+        order.index2++;
+    }
+    uint32_t maskList[3];
+    list[order.index0] = 1u;
+    list[order.index1] = 2u;
+    list[order.index2] = 4u;
+}
 
 void octreeTraverse_Hero(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
+    uint32_t vMask,
     float tx0, float ty0, float tz0,
-    float tx1, float ty1, float tz1, float *t, int* nMajor, int depth = 0 )
+    float tx1, float ty1, float tz1, float* t, int* nMajor, int depth = 0)
 {
+    // float tmin = glm::max(0.0f, maxElement(tx0, ty0, tz0));
+    // float tmax = glm::min(*t, minElement(tx1, ty1, tz1));
+    //float S_lmax = maxElement(tx0, ty0, tz0);
+    //float S_umin = minElement(tx1, ty1, tz1);
+    glm::vec3 t0{ tx0, ty0, tz0 };
+    glm::vec3 t1{ tx1, ty1, tz1 };
+    glm::vec3 tlower = glm::min(t0, t1);
+    glm::vec3 tupper = glm::max(t0, t1);
+    float S_lmax = maxElement(tlower.x, tlower.y, tlower.z);
+    float S_umin = minElement(tupper.x, tupper.y, tupper.z);
 
-    float tmin = glm::max( 0.0f, maxElement(tx0, ty0, tz0) );
-    float tmax = glm::min( *t, minElement(tx1, ty1, tz1) );
+    //glm::vec3 tmin = { tx0, ty0, tz0 };
+    //glm::vec3 tmax = { tx1, ty1, tz1 };
+    //if (vMask & 1u)
+    //{
+    //    std::swap(tmin.x, tmax.x);
+    //}
+    //if (vMask & 2u)
+    //{
+    //    std::swap(tmin.y, tmax.y);
+    //}
+    //if (vMask & 4u)
+    //{
+    //    std::swap(tmin.z, tmax.z);
+    //}
+    //float S_lmax = maxElement(tmin.x, tmin.y, tmin.z);
+    //float S_umin = minElement(tmax.x, tmax.y, tmax.z);
 
-    if (!(tmin < tmax))
-    {
+    if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
         return;
-    }
-    if( nodeIndex == -1 )
-    {
-        if( tmin < *t )
-        {
-            *t = tmin;
 
-            if (tmin == tx0 )
+    if (nodeIndex == -1)
+    {
+        if (S_lmax < *t)
+        {
+            *t = S_lmax;
+
+            if (S_lmax == tlower.x)
             {
                 *nMajor = 1;
             }
-            else if (tmin == ty0 )
+            else if (S_lmax == tlower.y)
             {
                 *nMajor = 2;
             }
@@ -407,35 +468,93 @@ void octreeTraverse_Hero(
         return;
     }
 
-    float txM = 0.5f * (tx0 + tx1);
-    float tyM = 0.5f * (ty0 + ty1);
-    float tzM = 0.5f * (tz0 + tz1);
+    float txM = 0.5f * ( tx0 + tx1 );
+    float tyM = 0.5f * ( ty0 + ty1 );
+    float tzM = 0.5f * ( tz0 + tz1 );
 
-    const OctreeNode& node = nodes[nodeIndex];
+    uint32_t childMask =
+        (txM < S_lmax ? 1u : 0u) |
+        (tyM < S_lmax ? 2u : 0u) |
+        (tzM < S_lmax ? 4u : 0u);
+    uint32_t lastMask =
+        (txM < S_umin ? 1u : 0u) |
+        (tyM < S_umin ? 2u : 0u) |
+        (tzM < S_umin ? 4u : 0u);
 
-    if( node.mask & ( 0x1 ))
-        octreeTraverse_Hero(nodes, node.children[0], tx0, ty0, tz0, txM, tyM, tzM, t, nMajor, depth + 1);
+    uint32_t maskList[3];
+    buildMaskList(maskList, txM, tyM, tzM );
 
-    if (node.mask & (0x1 << 1 ))
-        octreeTraverse_Hero(nodes, node.children[1], txM, ty0, tz0, tx1, tyM, tzM, t, nMajor, depth + 1);
+    // glm::vec3 hsize = (upper - lower) * 0.5f;
 
-    if (node.mask & (0x1 << 2))
-        octreeTraverse_Hero(nodes, node.children[2], tx0, tyM, tz0, txM, ty1, tzM, t, nMajor, depth + 1);
+    uint32_t currentChildMask = childMask;
+    int i = 0;
+    int bindex = 0;
+    for (;;)
+    {
+        // process the child
+        //glm::vec3 o =
+        //{
+        //    lower.x + ((currentChildMask ^ vMask) & 1u ? hsize.x : 0.0f),
+        //    lower.y + ((currentChildMask ^ vMask) & 2u ? hsize.y : 0.0f),
+        //    lower.z + ((currentChildMask ^ vMask) & 4u ? hsize.z : 0.0f),
+        //};
+        //drawAABBscaled(o, o + hsize, 0.93f, { 0,0, 255 }, 2);
+        //pr::DrawText(o + hsize * 0.5f, std::to_string(bindex++));
 
-    if (node.mask & (0x1 << 3))
-        octreeTraverse_Hero(nodes, node.children[3], txM, tyM, tz0, tx1, ty1, tzM, t, nMajor, depth + 1);
+        const OctreeNode& node = nodes[nodeIndex];
+        uint32_t c = currentChildMask ^ vMask;
+        if( node.mask & ( 0x1 << c ) )
+        {
+            float x0 = ( c & 1u ) ? txM : tx0;
+            float x1 = ( c & 1u ) ? tx1 : txM;
 
-    if (node.mask & (0x1 << 4))
-        octreeTraverse_Hero(nodes, node.children[4], tx0, ty0, tzM, txM, tyM, tz1, t, nMajor, depth + 1);
+            float y0 = ( c & 2u ) ? tyM : ty0;
+            float y1 = ( c & 2u ) ? ty1 : tyM;
 
-    if (node.mask & (0x1 << 5))
-        octreeTraverse_Hero(nodes, node.children[5], txM, ty0, tzM, tx1, tyM, tz1, t, nMajor, depth + 1);
+            float z0 = ( c & 4u ) ? tzM : tz0;
+            float z1 = ( c & 4u ) ? tz1 : tzM;
 
-    if (node.mask & (0x1 << 6))
-        octreeTraverse_Hero(nodes, node.children[6], tx0, tyM, tzM, txM, ty1, tz1, t, nMajor, depth + 1);
-        
-    if (node.mask & (0x1 << 7))
-        octreeTraverse_Hero(nodes, node.children[7], txM, tyM, tzM, tx1, ty1, tz1, t, nMajor, depth + 1);
+            //if (vMask & 1u)
+            //    std::swap(x0, x1);
+            //if (vMask & 2u)
+            //    std::swap(y0, y1);
+            //if (vMask & 4u)
+            //    std::swap(z0, z1);
+
+            octreeTraverse_Hero( nodes, node.children[c], vMask, x0, y0, z0, x1, y1, z1, t, nMajor, depth + 1 );
+        }
+
+        if( currentChildMask == lastMask )
+        {
+            break;
+        }
+
+        //while( ( maskList[i] & currentChildMask ) != 0 )
+        //{
+        //    i++; // It means the flag is already set. Thus, skip OR operation
+        //    if( 2 < i )
+        //    {
+        //        break;
+        //    }
+        //}
+        //if (2 < i)
+        //{
+        //    break;
+        //}
+
+        //currentChildMask |= maskList[i];
+
+        uint32_t nextChildMask = currentChildMask;
+        do
+        {
+            nextChildMask = currentChildMask | maskList[i++];
+        } while(nextChildMask == currentChildMask && i < 3 );
+        if (nextChildMask == currentChildMask)
+        {
+            break;
+        }
+        currentChildMask = nextChildMask;
+    }
 }
 void octreeTraverse_Hero(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
@@ -445,12 +564,79 @@ void octreeTraverse_Hero(
     glm::vec3 upper,
     float* t, int* nMajor, int depth )
 {
-    glm::vec3 t0 = (lower - ro) * one_over_rd;
-    glm::vec3 t1 = (upper - ro) * one_over_rd;
-    glm::vec3 tmin = t0;
-    glm::vec3 tmax = t1;
+    glm::vec3 t0 = ( lower - ro ) * one_over_rd;
+    glm::vec3 t1 = ( upper - ro ) * one_over_rd;
+    //glm::vec3 tmin = glm::min( t0v, t1v );
+    //glm::vec3 tmax = glm::max( t0v, t1v );
+    //glm::vec3 tmin = t0v;
+    //glm::vec3 tmax = t1v;
+    //glm::vec3 tmid = ( tmin + tmax ) * 0.5f;
 
-    octreeTraverse_Hero( nodes, nodeIndex, tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, t, nMajor, depth );
+    //float S_lmax = maxElement( tmin.x, tmin.y, tmin.z );
+    //float S_umin = minElement( tmax.x, tmax.y, tmax.z );
+
+    glm::vec3 tmid = (t0 + t1) * 0.5f;
+
+    glm::vec3 tlower = glm::min(t0, t1);
+    glm::vec3 tupper = glm::max(t0, t1);
+    float S_lmax = maxElement(tlower.x, tlower.y, tlower.z);
+    float S_umin = minElement(tupper.x, tupper.y, tupper.z);
+
+    if (glm::min(S_umin, *t) < glm::max(S_lmax, 0.0f))
+        return;
+
+    uint32_t vMask = 
+        ( 0.0f < one_over_rd.x ? 0u : 1u ) |
+        ( 0.0f < one_over_rd.y ? 0u : 2u ) |
+        ( 0.0f < one_over_rd.z ? 0u : 4u );
+
+    octreeTraverse_Hero(nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor, depth);
+
+    //uint32_t childMask =
+    //    ( tmid.x < S_lmax ? 1u : 0u ) |
+    //    ( tmid.y < S_lmax ? 2u : 0u ) |
+    //    ( tmid.z < S_lmax ? 4u : 0u );
+    //uint32_t lastMask =
+    //    ( tmid.x < S_umin ? 1u : 0u ) |
+    //    ( tmid.y < S_umin ? 2u : 0u ) |
+    //    ( tmid.z < S_umin ? 4u : 0u );
+
+    //uint32_t maskList[3];
+    //buildMaskList( maskList, tmid.x, tmid.y, tmid.z );
+
+    //glm::vec3 hsize = (upper - lower) * 0.5f;
+
+    //uint32_t currentChildMask = childMask;
+    //int i = 0;
+    //int bindex = 0;
+    //for (;;)
+    //{
+    //    // process the child
+    //    glm::vec3 o =
+    //    {
+    //        lower.x + ( (currentChildMask ^ vMask ) & 1u ? hsize.x : 0.0f),
+    //        lower.y + ( (currentChildMask ^ vMask ) & 2u ? hsize.y : 0.0f),
+    //        lower.z + ( (currentChildMask ^ vMask ) & 4u ? hsize.z : 0.0f),
+    //    };
+    //    drawAABBscaled(o, o + hsize, 0.93f, { 0,0, 255 }, 2);
+    //    pr::DrawText(o + hsize * 0.5f, std::to_string(bindex++));
+
+    //    if( currentChildMask == lastMask )
+    //    {
+    //        break;
+    //    }
+
+    //uint32_t nextChildMask = currentChildMask;
+    //do
+    //{
+    //    nextChildMask = currentChildMask | maskList[i++];
+    //} while (nextChildMask == currentChildMask && i < 3);
+    //if (nextChildMask == currentChildMask)
+    //{
+    //    break;
+    //}
+    //currentChildMask = nextChildMask;
+    //}
 }
 
 void octreeTraverseNaive(
@@ -465,6 +651,8 @@ void octreeTraverseNaive(
     glm::vec3 t1v = (upper - ro) * one_over_rd;
     glm::vec3 tmin = glm::min(t0v, t1v);
     glm::vec3 tmax = glm::max(t0v, t1v);
+
+    // 0.0f, *t condition should be bad for normal
     float a = glm::max( 0.0f, maxElement( tmin.x, tmin.y, tmin.z ) );
     float b = glm::min( *t, minElement( tmax.x, tmax.y, tmax.z ) );
 
@@ -518,8 +706,63 @@ void octreeTraverseNaive(
     }
 }
 
+
+
 int main() {
     using namespace pr;
+
+    struct Item
+    {
+        float d;
+        uint32_t m;
+    };
+    struct order
+    {
+        uint32_t a, b, c;
+    };
+
+    pr::Xoshiro128StarStar random;
+    std::vector<order> os(8);
+    for (int i = 0 ; i < 100 ; i++ )
+    {
+        Item items[] = {
+            { random.uniformf(), 1u },
+            { random.uniformf(), 2u },
+            { random.uniformf(), 4u },
+        };
+
+        uint32_t k = 
+            (items[0].d < items[1].d ? 1u : 0u) |
+            (items[1].d < items[2].d ? 2u : 0u) |
+            (items[2].d < items[0].d ? 4u : 0u);
+
+        uint32_t maskList[3];
+        buildMaskList(maskList, items[0].d, items[1].d, items[2].d);
+
+        std::sort(items, items + 3, [](Item a, Item b) { return a.d < b.d; });
+        os[k] = { items[0].m, items[1].m, items[2].m };
+
+        PR_ASSERT(items[0].m == maskList[0]);
+        PR_ASSERT(items[1].m == maskList[1]);
+        PR_ASSERT(items[2].m == maskList[2]);
+    }
+    for (int i = 0; i < 8; i++)
+    {
+        //printf("{%d, %d, %d},\n",
+        //    os[i].a,
+        //    os[i].b,
+        //    os[i].c
+        //);
+
+//#define EXTRACT( x ) ( x & 1) ? 1 : 0, (x & 2) ? 1 : 0, (x & 4) ? 1 : 0
+//
+//        printf("%d,%d,%d = %d%d%d %d%d%d %d%d%d\n",
+//            EXTRACT(i),
+//            EXTRACT(os[i].a),
+//            EXTRACT(os[i].b),
+//            EXTRACT(os[i].c)
+//        );
+    }
 
     Config config;
     config.ScreenWidth = 1920;
@@ -562,13 +805,14 @@ int main() {
 
         static double voxel_time = 0.0f;
         static bool drawVoxelWire = true;
+        static bool naiive = false;
 #if 1
         static bool sixSeparating = true;
         static float dps = 0.1f;
         static glm::vec3 origin = { -2.0f, -2.0f, -2.0f };
-        static int gridRes = 4;
+        static int gridRes = 128;
 
-        static glm::vec3 from = { -3, -3, -3 };
+        static glm::vec3 from = { -3, 3, -3 };
         static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
 
         ManipulatePosition(camera, &from, 1);
@@ -726,26 +970,29 @@ int main() {
         g_ro = ro;
         g_rd = rd;
 
-        float rt0 = FLT_MAX;
-        int nMajor;
-        octreeTraverse_Hero( nodes, nodes.size() - 1,  tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, &rt0, &nMajor );
-        DrawSphere(ro + rd * rt0, 0.05f, { 255,0,0 });
-
         //float rt0 = FLT_MAX;
         //int nMajor;
-        //octreeTraverseNaive( nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &rt0, &nMajor, 0 );
+        //octreeTraverse_Hero( nodes, nodes.size() - 1,  tmin.x, tmin.y, tmin.z, tmax.x, tmax.y, tmax.z, &rt0, &nMajor );
+        //DrawSphere(ro + rd * rt0, 0.05f, { 255,0,0 });
 
-        //DrawSphere(ro + rd * rt0, 0.01f, { 255,0,0 });
+        float rt0 = FLT_MAX;
+        int nMajor;
+        octreeTraverse_Hero( nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &rt0, &nMajor, 0 );
+
+        DrawSphere(ro + rd * rt0, 0.01f, { 255,0,0 });
 
         glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f , nMajor );
         DrawArrow(ro + rd * rt0, ro + rd * rt0 + hitN * 0.1f, 0.01f, { 255,0,0 });
 
+#if 1
         Image2DRGBA8 image;
         image.allocate(GetScreenWidth(), GetScreenHeight());
 
         CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
 
-        ParallelFor(image.height(), [&](int j) 
+
+        //ParallelFor(image.height(), [&](int j) 
+        for (int j = 0; j < image.height(); ++j)
         {
             for (int i = 0; i < image.width(); ++i)
             {
@@ -755,8 +1002,14 @@ int main() {
 
                 float t = FLT_MAX;
                 int nMajor;
-                //octreeTraverse_Hero(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
-                octreeTraverseNaive(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+                if (naiive)
+                {
+                    octreeTraverseNaive(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+                }
+                else
+                {
+                    octreeTraverse_Hero(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+                }
 
                 if( t != FLT_MAX ) {
                     glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder(rd, nMajor) < 0.0f ? 1.0f : -1.0f, nMajor);
@@ -769,11 +1022,13 @@ int main() {
                 }
             }
         }
-        );
+        //);
         if (bgTexture == nullptr) {
             bgTexture = CreateTexture();
         }
         bgTexture->upload(image);
+#endif
+
 #endif
 
 #if 0
@@ -954,6 +1209,7 @@ int main() {
         ImGui::Text("fps = %f", GetFrameRate());
         ImGui::Checkbox("drawVoxelWire", &drawVoxelWire);
         ImGui::Checkbox("buildVoxels", &buildVoxels);
+        ImGui::Checkbox("naiive", &naiive);
         ImGui::Text("octree = %d byte", (int)nodes.size() * sizeof( OctreeNode ));
         
         //ImGui::InputInt("voxelX", &voxelX);
