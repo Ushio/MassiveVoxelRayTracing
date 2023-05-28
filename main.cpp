@@ -698,20 +698,16 @@ void octreeTraverse_EfficientParametric(
 			float z0 = ( childMask & 4u ) ? tzM : tz0;
 			octreeTraverse_EfficientParametric( nodes, node.children[childMask ^ vMask], vMask, x0, y0, z0, x1, y1, z1, t, nMajor );
 		}
-		float nPlane = minElement( x1, y1, z1 );
 
+		// find minimum( x1, y1, z1 ) for next hit
 		uint32_t mv;
-		if( nPlane == x1 )
+		if( x1 < y1 )
 		{
-			mv = 1u;
-		}
-		else if( nPlane == y1 )
-		{
-			mv = 2u;
+			mv = x1 < z1 ? 1u : 4u;
 		}
 		else
 		{
-			mv = 4u;
+			mv = y1 < z1 ? 2u : 4u;
 		}
 
 		if( childMask & mv )
@@ -837,20 +833,16 @@ void octreeTraverse_EfficientParametric(
 			{
 				children[nChild++] = childMask;
 			}
-			float nPlane = minElement( x1, y1, z1 );
 
+            // find minimum( x1, y1, z1 ) for next hit
 			uint32_t mv;
-			if( nPlane == x1 )
+			if( x1 < y1 )
 			{
-				mv = 1u;
-			}
-			else if( nPlane == y1 )
-			{
-				mv = 2u;
+				mv = x1 < z1 ? 1u : 4u;
 			}
 			else
 			{
-				mv = 4u;
+				mv = y1 < z1 ? 2u : 4u;
 			}
 
 			if( childMask & mv )
