@@ -751,58 +751,212 @@ void octreeTraverse_EfficientParametric(
 
 	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
 	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
-	glm::vec3 tmid = ( t0 + t1 ) * 0.5f;
-	float S_lmax = maxElement( t0.x, t0.y, t0.z );
-	float S_umin = minElement( t1.x, t1.y, t1.z );
 
-	if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
-		return;
+    // TOP node hit
+	{
+		float S_lmax = maxElement( t0.x, t0.y, t0.z );
+		float S_umin = minElement( t1.x, t1.y, t1.z );
 
+        if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+		{
+			return;
+        }
+	}
+
+#if 0
+    // Recursive ver
     octreeTraverse_EfficientParametric( nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor );
+#else
+    // Loop ver
+	struct StackElement
+	{
+		uint32_t nodeIndex;
+		float tx0;
+		float ty0;
+		float tz0;
+		float tx1;
+		float ty1;
+		float tz1;
+	};
+	StackElement stack[512];
+	int sp = 0;
+    StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z };
 
-	//uint32_t childMask =
-	//	( tmid.x < S_lmax ? 1u : 0u ) |
-	//	( tmid.y < S_lmax ? 2u : 0u ) |
-	//	( tmid.z < S_lmax ? 4u : 0u );
+	for( ;; )
+	{
+		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
+		float S_umin = minElement( cur.tx1, cur.ty1, cur.tz1 );
 
- //   int bindex = 0;
-	//for( ;; )
-	//{
-	//	glm::vec3 hsize = ( upper - lower ) * 0.5f;
-	//	glm::vec3 o =
-	//		{
-	//			lower.x + ( ( childMask ^ vMask ) & 1u ? hsize.x : 0.0f ),
-	//			lower.y + ( ( childMask ^ vMask ) & 2u ? hsize.y : 0.0f ),
-	//			lower.z + ( ( childMask ^ vMask ) & 4u ? hsize.z : 0.0f ),
-	//		};
-	//	drawAABBscaled( o, o + hsize, 0.93f, { 0, 0, 255 }, 2 );
-	//	pr::DrawText( o + hsize * 0.5f, std::to_string( bindex++ ) );
+		if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+		{
+			goto pop;
+		}
 
-	//	float xborder = childMask & 1u ? t1.x : tmid.x;
-	//	float yborder = childMask & 2u ? t1.y : tmid.y;
-	//	float zborder = childMask & 4u ? t1.z : tmid.z;
-	//	float nPlane = minElement( xborder, yborder, zborder );
+		if( cur.nodeIndex == -1 )
+		{
+			if( S_lmax < *t )
+			{
+				*t = S_lmax;
 
-	//	uint32_t mv;
-	//	if( nPlane == xborder )
-	//	{
-	//		mv = 1u;
-	//	}
-	//	else if( nPlane == yborder )
-	//	{
-	//		mv = 2u;
-	//	}
-	//	else
-	//	{
-	//		mv = 4u;
-	//	}
+				if( S_lmax == cur.tx0 )
+				{
+					*nMajor = 1;
+				}
+				else if( S_lmax == cur.ty0 )
+				{
+					*nMajor = 2;
+				}
+				else
+				{
+					*nMajor = 0;
+				}
+			}
 
- //       if( childMask & mv )
- //       {
-	//		break;
- //       }
-	//	childMask |= mv;
-	//}
+			goto pop;
+		}
+
+		float txM = 0.5f * ( cur.tx0 + cur.tx1 );
+		float tyM = 0.5f * ( cur.ty0 + cur.ty1 );
+		float tzM = 0.5f * ( cur.tz0 + cur.tz1 );
+
+        uint32_t childMask =
+			( txM < S_lmax ? 1u : 0u ) |
+			( tyM < S_lmax ? 2u : 0u ) |
+			( tzM < S_lmax ? 4u : 0u );
+
+        uint32_t children[4];
+		int nChild = 0;
+
+		const OctreeNode& node = nodes[cur.nodeIndex];
+		for( ;; )
+		{
+			float x1 = ( childMask & 1u ) ? cur.tx1 : txM;
+			float y1 = ( childMask & 2u ) ? cur.ty1 : tyM;
+			float z1 = ( childMask & 4u ) ? cur.tz1 : tzM;
+			if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
+			{
+				children[nChild++] = childMask;
+			}
+			float nPlane = minElement( x1, y1, z1 );
+
+			uint32_t mv;
+			if( nPlane == x1 )
+			{
+				mv = 1u;
+			}
+			else if( nPlane == y1 )
+			{
+				mv = 2u;
+			}
+			else
+			{
+				mv = 4u;
+			}
+
+			if( childMask & mv )
+			{
+				break;
+			}
+			childMask |= mv;
+		}
+
+        for( int i = nChild - 1; 0 <= i; i-- )
+		{
+			float x1 = ( children[i] & 1u ) ? cur.tx1 : txM;
+			float y1 = ( children[i] & 2u ) ? cur.ty1 : tyM;
+			float z1 = ( children[i] & 4u ) ? cur.tz1 : tzM;
+            float x0 = ( children[i] & 1u ) ? txM : cur.tx0;
+			float y0 = ( children[i] & 2u ) ? tyM : cur.ty0;
+			float z0 = ( children[i] & 4u ) ? tzM : cur.tz0;
+
+            if( i == 0 )
+			{
+				cur.nodeIndex = node.children[children[i] ^ vMask];
+				cur.tx0 = x0;
+				cur.ty0 = y0;
+				cur.tz0 = z0;
+				cur.tx1 = x1;
+				cur.ty1 = y1;
+				cur.tz1 = z1;
+				break;
+			}
+			else
+			{
+				stack[sp].nodeIndex = node.children[children[i] ^ vMask];
+				stack[sp].tx0 = x0;
+				stack[sp].ty0 = y0;
+				stack[sp].tz0 = z0;
+				stack[sp].tx1 = x1;
+				stack[sp].ty1 = y1;
+				stack[sp].tz1 = z1;
+				sp++;
+			}
+		}
+
+		if( nChild )
+		{
+			continue;
+		}
+    pop:
+		if( sp )
+		{
+			cur = stack[--sp];
+			continue;
+		}
+		else
+		{
+			break;
+		}
+	}
+
+#endif
+
+#if 0
+    glm::vec3 tmid = ( t0 + t1 ) * 0.5f;
+	uint32_t childMask =
+		( tmid.x < S_lmax ? 1u : 0u ) |
+		( tmid.y < S_lmax ? 2u : 0u ) |
+		( tmid.z < S_lmax ? 4u : 0u );
+
+    int bindex = 0;
+	for( ;; )
+	{
+		glm::vec3 hsize = ( upper - lower ) * 0.5f;
+		glm::vec3 o =
+			{
+				lower.x + ( ( childMask ^ vMask ) & 1u ? hsize.x : 0.0f ),
+				lower.y + ( ( childMask ^ vMask ) & 2u ? hsize.y : 0.0f ),
+				lower.z + ( ( childMask ^ vMask ) & 4u ? hsize.z : 0.0f ),
+			};
+		drawAABBscaled( o, o + hsize, 0.93f, { 0, 0, 255 }, 2 );
+		pr::DrawText( o + hsize * 0.5f, std::to_string( bindex++ ) );
+
+		float xborder = childMask & 1u ? t1.x : tmid.x;
+		float yborder = childMask & 2u ? t1.y : tmid.y;
+		float zborder = childMask & 4u ? t1.z : tmid.z;
+		float nPlane = minElement( xborder, yborder, zborder );
+
+		uint32_t mv;
+		if( nPlane == xborder )
+		{
+			mv = 1u;
+		}
+		else if( nPlane == yborder )
+		{
+			mv = 2u;
+		}
+		else
+		{
+			mv = 4u;
+		}
+
+        if( childMask & mv )
+        {
+			break;
+        }
+		childMask |= mv;
+	}
+#endif
 }
 
 void octreeTraverseNaive(
@@ -1121,7 +1275,7 @@ int main() {
     Config config;
     config.ScreenWidth = 1920;
     config.ScreenHeight = 1080;
-    config.SwapInterval = 1;
+    config.SwapInterval = 0;
     Initialize(config);
 
     Camera3D camera;
