@@ -642,6 +642,169 @@ void octreeTraverse_Hero(
     //}
 }
 
+void octreeTraverse_EfficientParametric(
+	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
+	uint32_t vMask,
+	float tx0, float ty0, float tz0,
+	float tx1, float ty1, float tz1, float* t, int* nMajor )
+{
+	float S_lmax = maxElement( tx0, ty0, tz0 );
+	float S_umin = minElement( tx1, ty1, tz1 );
+
+	if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+		return;
+
+	if( nodeIndex == -1 )
+	{
+		if( S_lmax < *t )
+		{
+			*t = S_lmax;
+
+			if( S_lmax == tx0 )
+			{
+				*nMajor = 1;
+			}
+			else if( S_lmax == ty0 )
+			{
+				*nMajor = 2;
+			}
+			else
+			{
+				*nMajor = 0;
+			}
+		}
+		return;
+	}
+
+	float txM = 0.5f * ( tx0 + tx1 );
+	float tyM = 0.5f * ( ty0 + ty1 );
+	float tzM = 0.5f * ( tz0 + tz1 );
+
+    uint32_t childMask =
+		( txM < S_lmax ? 1u : 0u ) |
+		( tyM < S_lmax ? 2u : 0u ) |
+		( tzM < S_lmax ? 4u : 0u );
+
+	for( ;; )
+	{
+		const OctreeNode& node = nodes[nodeIndex];
+		float x1 = ( childMask & 1u ) ? tx1 : txM;
+		float y1 = ( childMask & 2u ) ? ty1 : tyM;
+		float z1 = ( childMask & 4u ) ? tz1 : tzM;
+		if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
+		{
+			float x0 = ( childMask & 1u ) ? txM : tx0;
+			float y0 = ( childMask & 2u ) ? tyM : ty0;
+			float z0 = ( childMask & 4u ) ? tzM : tz0;
+			octreeTraverse_EfficientParametric( nodes, node.children[childMask ^ vMask], vMask, x0, y0, z0, x1, y1, z1, t, nMajor );
+		}
+		float nPlane = minElement( x1, y1, z1 );
+
+		uint32_t mv;
+		if( nPlane == x1 )
+		{
+			mv = 1u;
+		}
+		else if( nPlane == y1 )
+		{
+			mv = 2u;
+		}
+		else
+		{
+			mv = 4u;
+		}
+
+		if( childMask & mv )
+		{
+			break;
+		}
+		childMask |= mv;
+	}
+}
+void octreeTraverse_EfficientParametric(
+	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
+	glm::vec3 ro,
+	glm::vec3 one_over_rd,
+	glm::vec3 lower,
+	glm::vec3 upper,
+	float* t, int* nMajor )
+{
+	uint32_t vMask = 0;
+	if( one_over_rd.x < 0.0f )
+	{
+		vMask |= 1u;
+		one_over_rd.x = -one_over_rd.x;
+		ro.x = lower.x + upper.x - ro.x;
+	}
+	if( one_over_rd.y < 0.0f )
+	{
+		vMask |= 2u;
+		one_over_rd.y = -one_over_rd.y;
+		ro.y = lower.y + upper.y - ro.y;
+	}
+	if( one_over_rd.z < 0.0f )
+	{
+		vMask |= 4u;
+		one_over_rd.z = -one_over_rd.z;
+		ro.z = lower.z + upper.z - ro.z;
+	}
+
+	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
+	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
+	glm::vec3 tmid = ( t0 + t1 ) * 0.5f;
+	float S_lmax = maxElement( t0.x, t0.y, t0.z );
+	float S_umin = minElement( t1.x, t1.y, t1.z );
+
+	if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+		return;
+
+    octreeTraverse_EfficientParametric( nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor );
+
+	//uint32_t childMask =
+	//	( tmid.x < S_lmax ? 1u : 0u ) |
+	//	( tmid.y < S_lmax ? 2u : 0u ) |
+	//	( tmid.z < S_lmax ? 4u : 0u );
+
+ //   int bindex = 0;
+	//for( ;; )
+	//{
+	//	glm::vec3 hsize = ( upper - lower ) * 0.5f;
+	//	glm::vec3 o =
+	//		{
+	//			lower.x + ( ( childMask ^ vMask ) & 1u ? hsize.x : 0.0f ),
+	//			lower.y + ( ( childMask ^ vMask ) & 2u ? hsize.y : 0.0f ),
+	//			lower.z + ( ( childMask ^ vMask ) & 4u ? hsize.z : 0.0f ),
+	//		};
+	//	drawAABBscaled( o, o + hsize, 0.93f, { 0, 0, 255 }, 2 );
+	//	pr::DrawText( o + hsize * 0.5f, std::to_string( bindex++ ) );
+
+	//	float xborder = childMask & 1u ? t1.x : tmid.x;
+	//	float yborder = childMask & 2u ? t1.y : tmid.y;
+	//	float zborder = childMask & 4u ? t1.z : tmid.z;
+	//	float nPlane = minElement( xborder, yborder, zborder );
+
+	//	uint32_t mv;
+	//	if( nPlane == xborder )
+	//	{
+	//		mv = 1u;
+	//	}
+	//	else if( nPlane == yborder )
+	//	{
+	//		mv = 2u;
+	//	}
+	//	else
+	//	{
+	//		mv = 4u;
+	//	}
+
+ //       if( childMask & mv )
+ //       {
+	//		break;
+ //       }
+	//	childMask |= mv;
+	//}
+}
+
 void octreeTraverseNaive(
     const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
     glm::vec3 ro,
@@ -1002,9 +1165,9 @@ int main() {
         static bool sixSeparating = true;
         static float dps = 0.1f;
         static glm::vec3 origin = { -2.0f, -2.0f, -2.0f };
-        static int gridRes = 128;
+        static int gridRes = 512;
 
-        static glm::vec3 from = { -3, 3, -3 };
+        static glm::vec3 from = { -3, -3, -3 };
         static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
 
         ManipulatePosition(camera, &from, 1);
@@ -1160,7 +1323,8 @@ int main() {
 
         float rt0 = FLT_MAX;
         int nMajor;
-        octreeTraverse_Hero( nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &rt0, &nMajor, 0 );
+        // octreeTraverse_Hero( nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &rt0, &nMajor, 0 );
+        octreeTraverse_EfficientParametric(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &rt0, &nMajor );
 
         DrawSphere(ro + rd * rt0, 0.01f, { 255,0,0 });
 
@@ -1195,7 +1359,7 @@ int main() {
                 }
                 else
                 {
-                    octreeTraverse_Hero(nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor, 0);
+					octreeTraverse_EfficientParametric( nodes, nodes.size() - 1, ro, one_over_rd, octree_lower, octree_upper, &t, &nMajor );
                 }
 
                 if( t != FLT_MAX ) {
