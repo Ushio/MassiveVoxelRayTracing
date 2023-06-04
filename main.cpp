@@ -748,17 +748,6 @@ void octreeTraverse_EfficientParametric(
 	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
 	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
 
-    // TOP node hit
-	{
-		float S_lmax = maxElement( t0.x, t0.y, t0.z );
-		float S_umin = minElement( t1.x, t1.y, t1.z );
-
-        if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
-		{
-			return;
-        }
-	}
-
 #if 0
     // Recursive ver
     octreeTraverse_EfficientParametric( nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor );
