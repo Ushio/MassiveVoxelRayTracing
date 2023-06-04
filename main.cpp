@@ -745,6 +745,9 @@ void octreeTraverse_EfficientParametric(
 		ro.z = lower.z + upper.z - ro.z;
 	}
 
+    const float kMinDir = 1.08420217249e-19f;
+	one_over_rd = glm::min( one_over_rd, glm::vec3( 1.0f / kMinDir ) );
+
 	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
 	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
 
