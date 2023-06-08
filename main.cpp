@@ -745,8 +745,15 @@ void octreeTraverse_EfficientParametric(
 		ro.z = lower.z + upper.z - ro.z;
 	}
 
-    const float kMinDir = 1.08420217249e-19f;
-	one_over_rd = glm::min( one_over_rd, glm::vec3( 1.0f / kMinDir ) );
+    // const float kMinDir = 1.08420217249e-19f;
+	// one_over_rd = glm::min( one_over_rd, glm::vec3( 1.0f / kMinDir ) );
+
+    glm::vec3 X = glm::vec3( FLT_MAX ) / 
+        glm::max( 
+            glm::max( glm::abs( lower - ro ), glm::abs( upper - ro ) ), 
+            glm::vec3( 1.0f ) 
+        );
+	one_over_rd = glm::min( one_over_rd, X );
 
 	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
 	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
@@ -803,6 +810,7 @@ void octreeTraverse_EfficientParametric(
 			goto pop;
 		}
 
+        
 		float txM = 0.5f * ( cur.tx0 + cur.tx1 );
 		float tyM = 0.5f * ( cur.ty0 + cur.ty1 );
 		float tzM = 0.5f * ( cur.tz0 + cur.tz1 );
@@ -812,7 +820,7 @@ void octreeTraverse_EfficientParametric(
 			( tyM < S_lmax ? 2u : 0u ) |
 			( tzM < S_lmax ? 4u : 0u );
 
-        uint32_t children[4];
+		uint32_t children = 0;
 		int nChild = 0;
 
 		const OctreeNode& node = nodes[cur.nodeIndex];
@@ -823,7 +831,8 @@ void octreeTraverse_EfficientParametric(
 			float z1 = ( childMask & 4u ) ? cur.tz1 : tzM;
 			if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
 			{
-				children[nChild++] = childMask;
+				children = ( children << 3 ) | childMask;
+				nChild++;
 			}
 
             // find minimum( x1, y1, z1 ) for next hit
@@ -844,18 +853,19 @@ void octreeTraverse_EfficientParametric(
 			childMask |= mv;
 		}
 
-        for( int i = nChild - 1; 0 <= i; i-- )
+        for( int i = 0; i < nChild; i++ )
 		{
-			float x1 = ( children[i] & 1u ) ? cur.tx1 : txM;
-			float y1 = ( children[i] & 2u ) ? cur.ty1 : tyM;
-			float z1 = ( children[i] & 4u ) ? cur.tz1 : tzM;
-            float x0 = ( children[i] & 1u ) ? txM : cur.tx0;
-			float y0 = ( children[i] & 2u ) ? tyM : cur.ty0;
-			float z0 = ( children[i] & 4u ) ? tzM : cur.tz0;
+			uint32_t child = ( children >> ( i * 3 ) ) & 0x7;
+			float x1 = ( child & 1u ) ? cur.tx1 : txM;
+			float y1 = ( child & 2u ) ? cur.ty1 : tyM;
+			float z1 = ( child & 4u ) ? cur.tz1 : tzM;
+            float x0 = ( child & 1u ) ? txM : cur.tx0;
+			float y0 = ( child & 2u ) ? tyM : cur.ty0;
+			float z0 = ( child & 4u ) ? tzM : cur.tz0;
 
-            if( i == 0 )
+            if( i + 1 == nChild )
 			{
-				cur.nodeIndex = node.children[children[i] ^ vMask];
+				cur.nodeIndex = node.children[child ^ vMask];
 				cur.tx0 = x0;
 				cur.ty0 = y0;
 				cur.tz0 = z0;
@@ -866,7 +876,7 @@ void octreeTraverse_EfficientParametric(
 			}
 			else
 			{
-				stack[sp].nodeIndex = node.children[children[i] ^ vMask];
+				stack[sp].nodeIndex = node.children[child ^ vMask];
 				stack[sp].tx0 = x0;
 				stack[sp].ty0 = y0;
 				stack[sp].tz0 = z0;
