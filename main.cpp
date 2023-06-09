@@ -810,24 +810,23 @@ void octreeTraverse_EfficientParametric(
 
 		if( cur.nodeIndex == -1 )
 		{
-			if( S_lmax < *t )
+			if( 0.0f < S_lmax ) // positive hit point only
 			{
-				*t = S_lmax;
+			    *t = S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
 
-				if( S_lmax == cur.tx0 )
-				{
-					*nMajor = 1;
-				}
-				else if( S_lmax == cur.ty0 )
-				{
-					*nMajor = 2;
-				}
-				else
-				{
-					*nMajor = 0;
-				}
+			    if( S_lmax == cur.tx0 )
+			    {
+				    *nMajor = 1;
+			    }
+			    else if( S_lmax == cur.ty0 )
+			    {
+				    *nMajor = 2;
+			    }
+			    else
+			    {
+				    *nMajor = 0;
+			    }
 			}
-
 			goto pop;
 		}
 
