@@ -117,6 +117,22 @@ inline uint64_t encode2mortonCode_magicbits(uint32_t x, uint32_t y, uint32_t z) 
     return answer;
 }
 
+float scalbnf_bits( float x, int n )
+{
+	uint32_t b = *(uint32_t*)&x;
+	b += 0x800000 * n;
+	return *(float*)&b;
+	//uint32_t b = *(uint32_t*)&x;
+	//int e = ( b >> 23 ) & 0xFF;
+	//e = glm::clamp( e + n, 0, 254 );
+	//b = ( b & ( ~0x7F800000 ) ) | (uint32_t)e << 23;
+	//return *(float*)&b;
+}
+float twopn( int n )
+{
+	uint32_t b = 0x3f800000 + 0x800000 * n;
+	return *(float*)&b;
+}
 static bool experiment = true;
 
 class VoxelObjWriter
@@ -717,6 +733,7 @@ void octreeTraverse_EfficientParametric(
 		childMask |= mv;
 	}
 }
+
 void octreeTraverse_EfficientParametric(
 	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
 	glm::vec3 ro,
@@ -762,6 +779,144 @@ void octreeTraverse_EfficientParametric(
     // Recursive ver
     octreeTraverse_EfficientParametric( nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor );
 #else
+	glm::vec3 dt = t1 - t0;
+
+	// Loop ver
+	struct StackElement
+	{
+		uint32_t nodeIndex;
+		float tx0;
+		float ty0;
+		float tz0;
+		int depth;
+	};
+	StackElement stack[512];
+	int sp = 0;
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 0 };
+
+	for( ;; )
+	{
+		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
+		float s = twopn( -cur.depth );
+		float tx1 = cur.tx0 + dt.x * s;
+		float ty1 = cur.ty0 + dt.y * s;
+		float tz1 = cur.tz0 + dt.z * s;
+		float S_umin = minElement( tx1, ty1, tz1 );
+
+		if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+		{
+			goto pop;
+		}
+
+		if( cur.nodeIndex == -1 )
+		{
+			if( S_lmax < *t )
+			{
+				*t = S_lmax;
+
+				if( S_lmax == cur.tx0 )
+				{
+					*nMajor = 1;
+				}
+				else if( S_lmax == cur.ty0 )
+				{
+					*nMajor = 2;
+				}
+				else
+				{
+					*nMajor = 0;
+				}
+			}
+
+			goto pop;
+		}
+
+		float txM = 0.5f * ( cur.tx0 + tx1 );
+		float tyM = 0.5f * ( cur.ty0 + ty1 );
+		float tzM = 0.5f * ( cur.tz0 + tz1 );
+
+		uint32_t childMask =
+			( txM < S_lmax ? 1u : 0u ) |
+			( tyM < S_lmax ? 2u : 0u ) |
+			( tzM < S_lmax ? 4u : 0u );
+
+		uint32_t children = 0;
+		int nChild = 0;
+
+		const OctreeNode& node = nodes[cur.nodeIndex];
+		for( ;; )
+		{
+			float x1 = ( childMask & 1u ) ? tx1 : txM;
+			float y1 = ( childMask & 2u ) ? ty1 : tyM;
+			float z1 = ( childMask & 4u ) ? tz1 : tzM;
+			if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
+			{
+				children = ( children << 3 ) | childMask;
+				nChild++;
+			}
+
+			// find minimum( x1, y1, z1 ) for next hit
+			uint32_t mv;
+			if( x1 < y1 )
+			{
+				mv = x1 < z1 ? 1u : 4u;
+			}
+			else
+			{
+				mv = y1 < z1 ? 2u : 4u;
+			}
+
+			if( childMask & mv )
+			{
+				break;
+			}
+			childMask |= mv;
+		}
+
+		for( int i = 0; i < nChild; i++ )
+		{
+			uint32_t child = ( children >> ( i * 3 ) ) & 0x7;
+			float x0 = ( child & 1u ) ? txM : cur.tx0;
+			float y0 = ( child & 2u ) ? tyM : cur.ty0;
+			float z0 = ( child & 4u ) ? tzM : cur.tz0;
+
+			if( i + 1 == nChild )
+			{
+				cur.nodeIndex = node.children[child ^ vMask];
+				cur.tx0 = x0;
+				cur.ty0 = y0;
+				cur.tz0 = z0;
+				cur.depth = cur.depth + 1;
+				break;
+			}
+			else
+			{
+				stack[sp].nodeIndex = node.children[child ^ vMask];
+				stack[sp].tx0 = x0;
+				stack[sp].ty0 = y0;
+				stack[sp].tz0 = z0;
+				stack[sp].depth = cur.depth + 1;
+				sp++;
+			}
+		}
+
+		if( nChild )
+		{
+			continue;
+		}
+	pop:
+		if( sp )
+		{
+			cur = stack[--sp];
+			continue;
+		}
+		else
+		{
+			break;
+		}
+	}
+
+#if 0
     // Loop ver
 	struct StackElement
 	{
@@ -902,6 +1057,8 @@ void octreeTraverse_EfficientParametric(
 			break;
 		}
 	}
+
+#endif
 
 #endif
 
@@ -1212,59 +1369,17 @@ public:
 
 int main() {
     using namespace pr;
+	//printf( "%f\n", scalbnf_bits( FLT_MAX, 1 ) );
+	//printf( "%f\n", std::scalbnf( FLT_MAX, 1 ) );
 
-//    struct Item
-//    {
-//        float d;
-//        uint32_t m;
-//    };
-//    struct order
-//    {
-//        uint32_t a, b, c;
-//    };
-//
-//    pr::Xoshiro128StarStar random;
-//    std::vector<order> os(8);
-//    for (int i = 0 ; i < 100 ; i++ )
-//    {
-//        Item items[] = {
-//            { random.uniformf(), 1u },
-//            { random.uniformf(), 2u },
-//            { random.uniformf(), 4u },
-//        };
-//
-//        uint32_t k = 
-//            (items[0].d < items[1].d ? 1u : 0u) |
-//            (items[1].d < items[2].d ? 2u : 0u) |
-//            (items[2].d < items[0].d ? 4u : 0u);
-//
-//        uint32_t maskList[3];
-//        buildMaskList(maskList, items[0].d, items[1].d, items[2].d);
-//
-//        std::sort(items, items + 3, [](Item a, Item b) { return a.d < b.d; });
-//        os[k] = { items[0].m, items[1].m, items[2].m };
-//
-//        PR_ASSERT(items[0].m == maskList[0]);
-//        PR_ASSERT(items[1].m == maskList[1]);
-//        PR_ASSERT(items[2].m == maskList[2]);
-//    }
-//    for (int i = 0; i < 8; i++)
-//    {
-//        //printf("{%d, %d, %d},\n",
-//        //    os[i].a,
-//        //    os[i].b,
-//        //    os[i].c
-//        //);
-//
-////#define EXTRACT( x ) ( x & 1) ? 1 : 0, (x & 2) ? 1 : 0, (x & 4) ? 1 : 0
-////
-////        printf("%d,%d,%d = %d%d%d %d%d%d %d%d%d\n",
-////            EXTRACT(i),
-////            EXTRACT(os[i].a),
-////            EXTRACT(os[i].b),
-////            EXTRACT(os[i].c)
-////        );
-//    }
+ //   Xoshiro128StarStar random;
+ //   for( int i = 0; i < 1000; i++ )
+ //   {
+	//	float x = glm::mix( -1000.0f, 1000.0f, random.uniformf() );
+	//	int n = random.uniformi() % 100 - 50;
+	//	printf( "%f %f, %d\n", scalbnf_bits( x, n ), std::scalbnf( x, n ), n );
+
+ //   }
 
     Config config;
     config.ScreenWidth = 1920;
@@ -1317,7 +1432,7 @@ int main() {
 
         static glm::vec3 from = { -3, -3, -3 };
         static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
-
+		to = from + glm::vec3( 1, 0, 0 );
         ManipulatePosition(camera, &from, 1);
         ManipulatePosition(camera, &to, 1);
 
