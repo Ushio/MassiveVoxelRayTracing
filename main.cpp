@@ -793,20 +793,19 @@ void octreeTraverse_EfficientParametric(
 		float tx0;
 		float ty0;
 		float tz0;
-		int depth;
+		float scale;
 	};
 	StackElement stack[512];
 	int sp = 0;
-	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 0 };
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 1.0f };
 
 	for( ;; )
 	{
 		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
-		float s = twopn( -cur.depth );
-		float tx1 = cur.tx0 + dt.x * s;
-		float ty1 = cur.ty0 + dt.y * s;
-		float tz1 = cur.tz0 + dt.z * s;
-
+		float tx1 = cur.tx0 + dt.x * cur.scale;
+		float ty1 = cur.ty0 + dt.y * cur.scale;
+		float tz1 = cur.tz0 + dt.z * cur.scale;
+		
         // came here so that S_lmax < S_umin ; however, reject it when the box is totally behind
 		if( minElement( tx1, ty1, tz1 ) < 0.0f )
 		{
@@ -894,7 +893,7 @@ void octreeTraverse_EfficientParametric(
 				cur.tx0 = x0;
 				cur.ty0 = y0;
 				cur.tz0 = z0;
-				cur.depth = cur.depth + 1;
+				cur.scale = cur.scale * 0.5f;
 				break;
 			}
 			else
@@ -903,7 +902,7 @@ void octreeTraverse_EfficientParametric(
 				stack[sp].tx0 = x0;
 				stack[sp].ty0 = y0;
 				stack[sp].tz0 = z0;
-				stack[sp].depth = cur.depth + 1;
+				stack[sp].scale = cur.scale * 0.5f;
 				sp++;
 			}
 		}
