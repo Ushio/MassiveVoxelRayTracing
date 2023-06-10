@@ -119,14 +119,14 @@ inline uint64_t encode2mortonCode_magicbits(uint32_t x, uint32_t y, uint32_t z) 
 
 float scalbnf_bits( float x, int n )
 {
-	uint32_t b = *(uint32_t*)&x;
-	b += 0x800000 * n;
-	return *(float*)&b;
 	//uint32_t b = *(uint32_t*)&x;
-	//int e = ( b >> 23 ) & 0xFF;
-	//e = glm::clamp( e + n, 0, 254 );
-	//b = ( b & ( ~0x7F800000 ) ) | (uint32_t)e << 23;
+	//b += 0x800000 * n;
 	//return *(float*)&b;
+	uint32_t b = *(uint32_t*)&x;
+	int e = ( b >> 23 ) & 0xFF;
+	e = glm::clamp( e + n, 0, 254 );
+	b = ( b & ( ~0x7F800000 ) ) | (uint32_t)e << 23;
+	return *(float*)&b;
 }
 float twopn( int n )
 {
@@ -781,6 +781,11 @@ void octreeTraverse_EfficientParametric(
 #else
 	glm::vec3 dt = t1 - t0;
 
+    if( minElement( t1.x, t1.y, t1.z ) < glm::max( maxElement( t0.x, t0.y, t0.z ), 0.0f ) )
+	{
+		return;
+	}
+
 	// Loop ver
 	struct StackElement
 	{
@@ -801,9 +806,9 @@ void octreeTraverse_EfficientParametric(
 		float tx1 = cur.tx0 + dt.x * s;
 		float ty1 = cur.ty0 + dt.y * s;
 		float tz1 = cur.tz0 + dt.z * s;
-		float S_umin = minElement( tx1, ty1, tz1 );
 
-		if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
+        // came here so that S_lmax < S_umin ; however, reject it when the box is totally behind
+		if( minElement( tx1, ty1, tz1 ) < 0.0f )
 		{
 			goto pop;
 		}
@@ -826,6 +831,9 @@ void octreeTraverse_EfficientParametric(
 			    {
 				    *nMajor = 0;
 			    }
+
+                // Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
+			    break;
 			}
 			goto pop;
 		}
@@ -848,6 +856,7 @@ void octreeTraverse_EfficientParametric(
 			float x1 = ( childMask & 1u ) ? tx1 : txM;
 			float y1 = ( childMask & 2u ) ? ty1 : tyM;
 			float z1 = ( childMask & 4u ) ? tz1 : tzM;
+
 			if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
 			{
 				children = ( children << 3 ) | childMask;
