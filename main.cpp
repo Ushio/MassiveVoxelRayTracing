@@ -880,6 +880,7 @@ void octreeTraverse_EfficientParametric(
 			childMask |= mv;
 		}
 
+        float hScale = cur.scale * 0.5f;
 		for( int i = 0; i < nChild; i++ )
 		{
 			uint32_t child = ( children >> ( i * 3 ) ) & 0x7;
@@ -893,7 +894,7 @@ void octreeTraverse_EfficientParametric(
 				cur.tx0 = x0;
 				cur.ty0 = y0;
 				cur.tz0 = z0;
-				cur.scale = cur.scale * 0.5f;
+				cur.scale = hScale;
 				break;
 			}
 			else
@@ -902,7 +903,7 @@ void octreeTraverse_EfficientParametric(
 				stack[sp].tx0 = x0;
 				stack[sp].ty0 = y0;
 				stack[sp].tz0 = z0;
-				stack[sp].scale = cur.scale * 0.5f;
+				stack[sp].scale = hScale;
 				sp++;
 			}
 		}
