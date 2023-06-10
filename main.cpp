@@ -3,6 +3,7 @@
 #include <set>
 #include <memory>
 #include "voxelization.hpp"
+#include "voxelMeshWriter.hpp"
 
 #include <embree4/rtcore.h>
 #include <embree4/rtcore_ray.h>
@@ -135,97 +136,7 @@ float twopn( int n )
 }
 static bool experiment = true;
 
-class VoxelObjWriter
-{
-public:
-    void add( glm::vec3 p, float dps)
-    {
-        points.push_back(p);
-        points.push_back(p + glm::vec3(dps, 0, 0));
-        points.push_back(p + glm::vec3(dps, 0, dps));
-        points.push_back(p + glm::vec3(0, 0, dps));
-        points.push_back(p + glm::vec3(0, dps, 0));
-        points.push_back(p + glm::vec3(dps, dps, 0));
-        points.push_back(p + glm::vec3(dps, dps, dps));
-        points.push_back(p + glm::vec3(0, dps, dps));
-    }
-    void saveObj( const char* file )
-    {
-        FILE* fp = fopen( file, "w" );
-        for (int i = 0; i < points.size(); i++)
-        {
-            fprintf( fp, "v %.6f %.6f %.6f\n", points[i].x, points[i].y, points[i].z );
-        }
-        int nVoxels = points.size() / 8;
-        for (int i = 0; i < nVoxels; i++)
-        {
-            uint32_t i0 = i * 8 + 1;
-            uint32_t i1 = i * 8 + 2;
-            uint32_t i2 = i * 8 + 3;
-            uint32_t i3 = i * 8 + 4;
-            uint32_t i4 = i * 8 + 5;
-            uint32_t i5 = i * 8 + 6;
-            uint32_t i6 = i * 8 + 7;
-            uint32_t i7 = i * 8 + 8;
 
-            // Left Hand
-            fprintf(fp, "f %d %d %d %d\n", i0, i1, i2, i3);
-            fprintf(fp, "f %d %d %d %d\n", i7, i6, i5, i4);
-            fprintf(fp, "f %d %d %d %d\n", i4, i5, i1, i0);
-            fprintf(fp, "f %d %d %d %d\n", i5, i6, i2, i1);
-            fprintf(fp, "f %d %d %d %d\n", i6, i7, i3, i2);
-            fprintf(fp, "f %d %d %d %d\n", i7, i4, i0, i3);
-        }
-        fclose( fp );
-    }
-
-    void savePLY(const char* file)
-    {
-        FILE* fp = fopen(file, "wb");
-
-        int nVoxels = points.size() / 8;
-
-        // PLY header
-        fprintf(fp, "ply\n");
-        fprintf(fp, "format binary_little_endian 1.0\n");
-        fprintf(fp, "element vertex %llu\n", points.size() );
-        fprintf(fp, "property float x\n");
-        fprintf(fp, "property float y\n");
-        fprintf(fp, "property float z\n");
-        fprintf(fp, "element face %d\n", nVoxels * 6 );
-        fprintf(fp, "property list uchar uint vertex_indices\n");
-        fprintf(fp, "end_header\n");
-
-        // Write vertices
-        fwrite(points.data(), sizeof( glm::vec3 ) * points.size(), 1, fp );
-
-        for (int i = 0; i < nVoxels; i++)
-        {
-            uint32_t i0 = i * 8;
-            uint32_t i1 = i * 8 + 1;
-            uint32_t i2 = i * 8 + 2;
-            uint32_t i3 = i * 8 + 3;
-            uint32_t i4 = i * 8 + 4;
-            uint32_t i5 = i * 8 + 5;
-            uint32_t i6 = i * 8 + 6;
-            uint32_t i7 = i * 8 + 7;
-
-            uint8_t nverts = 4;
-#define F( a, b, c, d ) fwrite(&nverts, sizeof(uint8_t), 1, fp); fwrite(&(a), sizeof(uint32_t), 1, fp ); fwrite(&(b), sizeof(uint32_t), 1, fp ); fwrite(&(c), sizeof(uint32_t), 1, fp ); fwrite(&(d), sizeof(uint32_t), 1, fp );
-            // Left Hand
-            F( i3, i2, i1, i0 );
-            F( i4, i5, i6, i7 );
-            F( i0, i1, i5, i4 );
-            F( i1, i2, i6, i5 );
-            F( i2, i3, i7, i6 );
-            F( i3, i0, i4, i7 );
-#undef F
-        }
-
-        fclose(fp);
-    }
-    std::vector<glm::vec3> points;
-};
 
 class SequencialHasher
 {
@@ -1851,6 +1762,7 @@ int main() {
 
         static int Resolution = 1024;
         ImGui::InputInt("Resolution", &Resolution);
+
         if (ImGui::Button("Voxelize As Mesh"))
         {
             const char* input = "bunny.obj";
@@ -1882,9 +1794,8 @@ int main() {
             float dps = glm::max(glm::max(size.x, size.y), size.z) / (float)Resolution;
 
             // Voxelization
-            std::set<uint32_t> voxels;
-            VoxelObjWriter writer;
-            // Stopwatch voxelsw;
+            std::set<uint64_t> voxels;
+			VoxelMeshWriter writer;
 
             glm::vec3 origin = lower;
 
@@ -1908,26 +1819,22 @@ int main() {
                             if (context.intersect(p))
                             {
                                 glm::ivec3 c = context.i(x, y, z);
-                                SequencialHasher h;
-                                h.add(c.x, Resolution);
-                                h.add(c.y, Resolution);
-                                h.add(c.z, Resolution);
-
-                                if (voxels.count(h.value()) == 0 )
+                                uint64_t m = encode2mortonCode_PDEP( c.x, c.y, c.z );
+								writer.add( p, dps );
+                                if( voxels.count( m ) == 0 )
                                 {
                                     writer.add(p, dps);
                                 }
                                 else
                                 {
-                                    voxels.insert(h.value());
+									voxels.insert( m );
                                 }
                             }
                         }
                     }
                 }
             }
-
-            writer.savePLY(GetDataPath("vox.ply").c_str());
+            writer.savePLY( GetDataPath( "vox.ply" ).c_str() );
         }
 #endif
         
