@@ -895,7 +895,6 @@ void octreeTraverse_EfficientParametric(
 				cur.ty0 = y0;
 				cur.tz0 = z0;
 				cur.scale = hScale;
-				break;
 			}
 			else
 			{
@@ -916,7 +915,6 @@ void octreeTraverse_EfficientParametric(
 		if( sp )
 		{
 			cur = stack[--sp];
-			continue;
 		}
 		else
 		{
