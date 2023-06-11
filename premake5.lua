@@ -85,6 +85,35 @@ project "voxMesh"
         optimize "Full"
     filter{}
     
+project "unittest"
+    kind "ConsoleApp"
+    language "C++"
+    targetdir "bin/"
+    systemversion "latest"
+    flags { "MultiProcessorCompile", "NoPCH" }
+
+    -- Src
+    files { "unittest.cpp", "voxelization.hpp" }
+
+    -- UTF8
+    postbuildcommands { 
+        "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
+    }
+
+    includePrLib()
+
+    symbols "On"
+
+    filter {"Debug"}
+        runtime "Debug"
+        targetname ("unittest_Debug")
+        optimize "Off"
+    filter {"Release"}
+        runtime "Release"
+        targetname ("unittest")
+        optimize "Full"
+    filter{}
+
 project "main"
     kind "ConsoleApp"
     language "C++"

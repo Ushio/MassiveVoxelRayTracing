@@ -4,6 +4,27 @@
 #include <memory>
 #include <set>
 
+void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<glm::vec3>* vertices )
+{
+    using namespace pr;
+    vertices->clear();
+
+    scene->visitPolyMesh( [&]( std::shared_ptr<const FPolyMeshEntity> polymesh ) {
+        ColumnView<int32_t> faceCounts( polymesh->faceCounts() );
+	    ColumnView<int32_t> indices( polymesh->faceIndices() );
+	    ColumnView<glm::vec3> positions( polymesh->positions() );
+	    for( int i = 0; i < faceCounts.count(); i++ )
+	    {
+		    PR_ASSERT( faceCounts[i] == 3 ); // no quad support now.
+		    for( int j = 0; j < 3; ++j )
+		    {
+			    int index = indices[i * 3 + j];
+			    vertices->push_back( positions[index] );
+		    }
+	    }
+    } );
+}
+
 int main()
 {
 	using namespace pr;
@@ -19,14 +40,30 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	double e = GetElapsedTime();
-
 	SetDataDir( ExecutableDir() );
+
+    
 
 	const char* input = "bunny.obj";
 	SetDataDir( ExecutableDir() );
 	std::string errorMsg;
 	std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
+
+    std::vector<glm::vec3> vertices;
+	trianglesFlattened( scene, &vertices );
+
+    glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
+	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
+    for( int i = 0; i < vertices.size(); i++ )
+    {
+		bbox_lower = glm::min( bbox_lower, vertices[i] );
+		bbox_upper = glm::max( bbox_upper, vertices[i] );
+    }
+
+    glm::vec3 size = bbox_upper - bbox_lower;
+
+    int gridRes = 512;
+	float dps = glm::max( glm::max( size.x, size.y ), size.z ) / (float)gridRes;
 
 	while( pr::NextFrame() == false )
 	{
@@ -42,6 +79,27 @@ int main()
 
 		DrawGrid( GridAxis::XZ, 1.0f, 10, { 128, 128, 128 } );
 		DrawXYZAxis( 1.0f );
+
+        PrimBegin( pr::PrimitiveMode::Lines );
+		for( int i = 0; i < vertices.size(); i += 3 )
+		{
+			uint32_t indices[3];
+			for( int j = 0; j < 3; j++ )
+			{
+				indices[j] = pr::PrimVertex( vertices[i + j], { 255, 255, 255 } );
+			}
+            for (int j = 0; j < 3; j++)
+            {
+				pr::PrimIndex( indices[j] );
+				pr::PrimIndex( indices[( j + 1 ) % 3] );
+            }
+		}
+		PrimEnd();
+
+        //for( int i = 0; i < vertices.size(); i += 3 )
+        //{
+
+        //}
 
         //static glm::vec3 octree_lower;
         //static glm::vec3 octree_upper;
