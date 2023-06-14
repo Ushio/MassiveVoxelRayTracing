@@ -1,5 +1,5 @@
 ﻿#pragma once
-
+#include <stdint.h>
 #include <immintrin.h>
 
 inline uint64_t encode2mortonCode_Naive( uint32_t x, uint32_t y, uint32_t z )

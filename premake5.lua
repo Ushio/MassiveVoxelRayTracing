@@ -85,6 +85,46 @@ project "voxMesh"
         optimize "Full"
     filter{}
     
+project "voxRT"
+    kind "ConsoleApp"
+    language "C++"
+    targetdir "bin/"
+    systemversion "latest"
+    flags { "MultiProcessorCompile", "NoPCH" }
+
+    -- Src
+    files { "voxRT.cpp", "voxelization.hpp", "intersectorEmbree.hpp" }
+
+    -- UTF8
+    postbuildcommands { 
+        "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
+    }
+
+    includePrLib()
+
+    -- embree 4
+    libdirs { "libs/prlib/libs/embree4/lib" }
+    includedirs { "libs/prlib/libs/embree4/include" }
+    links{
+        "embree4",
+        "tbb",
+    }
+    postbuildcommands {
+        "{COPYFILE} ../libs/prlib/libs/embree4/bin/*.dll %{cfg.targetdir}/*.dll",
+    }
+
+    symbols "On"
+
+    filter {"Debug"}
+        runtime "Debug"
+        targetname ("voxRT_Debug")
+        optimize "Off"
+    filter {"Release"}
+        runtime "Release"
+        targetname ("voxRT")
+        optimize "Full"
+    filter{}
+
 project "unittest"
     kind "ConsoleApp"
     language "C++"
