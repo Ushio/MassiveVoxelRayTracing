@@ -583,8 +583,9 @@ void octreeTraverse_EfficientParametric(
 
 #if 1
     // lower number of stack ver
+
     float S_lmaxTop = maxElement( t0.x, t0.y, t0.z );
-	if( minElement( t1.x, t1.y, t1.z ) < glm::max( S_lmaxTop, 0.0f ) )
+	if( minElement( t1.x, t1.y, t1.z ) < S_lmaxTop ) // a case the box is totally behind of the ray is handled by the first condition of the loop
 	{
 		return;
 	}
@@ -607,7 +608,7 @@ void octreeTraverse_EfficientParametric(
 	for( ;; )
 	{
 	next:
-		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind
+		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind. Otherwise, there are potential hits.
 		if( minElement( cur.tx1, cur.ty1, cur.tz1 ) < 0.0f )
 		{
 			goto pop;
@@ -983,7 +984,6 @@ int main() {
 
         static glm::vec3 from = { -3, -3, -3 };
         static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
-		to = from + glm::vec3( 1, 0, 0 );
         ManipulatePosition(camera, &from, 1);
         ManipulatePosition(camera, &to, 1);
 
