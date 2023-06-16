@@ -580,14 +580,148 @@ void octreeTraverse_EfficientParametric(
     // Recursive ver
     octreeTraverse_EfficientParametric( nodes, nodeIndex, vMask, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, t, nMajor );
 #else
-	glm::vec3 dt = t1 - t0;
 
-    if( minElement( t1.x, t1.y, t1.z ) < glm::max( maxElement( t0.x, t0.y, t0.z ), 0.0f ) )
+#if 1
+    // lower number of stack ver
+    float S_lmaxTop = maxElement( t0.x, t0.y, t0.z );
+	if( minElement( t1.x, t1.y, t1.z ) < glm::max( S_lmaxTop, 0.0f ) )
 	{
 		return;
 	}
+	struct StackElement
+	{
+		uint32_t nodeIndex;
+		float tx0;
+		float ty0;
+		float tz0;
+		float tx1;
+		float ty1;
+		float tz1;
+		float S_lmax;
+		uint32_t childMask;
+	};
+    StackElement stack[512];
+	int sp = 0;
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, S_lmaxTop, 0xFFFFFFFF };
+	
+	for( ;; )
+	{
+	next:
+		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind
+		if( minElement( cur.tx1, cur.ty1, cur.tz1 ) < 0.0f )
+		{
+			goto pop;
+		}
 
-	// Loop ver
+		if( cur.nodeIndex == -1 )
+		{
+			if( 0.0f < cur.S_lmax ) // positive hit point only
+			{
+				*t = cur.S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
+
+				if( cur.S_lmax == cur.tx0 )
+				{
+					*nMajor = 1;
+				}
+				else if( cur.S_lmax == cur.ty0 )
+				{
+					*nMajor = 2;
+				}
+				else
+				{
+					*nMajor = 0;
+				}
+
+				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
+				break;
+			}
+			goto pop;
+		}
+
+		float txM = 0.5f * ( cur.tx0 + cur.tx1 );
+		float tyM = 0.5f * ( cur.ty0 + cur.ty1 );
+		float tzM = 0.5f * ( cur.tz0 + cur.tz1 );
+
+		if( cur.childMask == 0xFFFFFFFF )
+		{
+			cur.childMask =
+			    ( txM < cur.S_lmax ? 1u : 0u ) |
+			    ( tyM < cur.S_lmax ? 2u : 0u ) |
+			    ( tzM < cur.S_lmax ? 4u : 0u );
+		}
+
+		const OctreeNode& node = nodes[cur.nodeIndex];
+
+		float x1 = ( cur.childMask & 1u ) ? cur.tx1 : txM;
+		float y1 = ( cur.childMask & 2u ) ? cur.ty1 : tyM;
+		float z1 = ( cur.childMask & 4u ) ? cur.tz1 : tzM;
+
+		for( ;; )
+		{
+			// find minimum( x1, y1, z1 ) for next hit
+			uint32_t mv;
+			if( x1 < y1 )
+			{
+				mv = x1 < z1 ? 1u : 4u;
+			}
+			else
+			{
+				mv = y1 < z1 ? 2u : 4u;
+			}
+
+            bool hasNext = ( cur.childMask & mv ) == 0;
+			uint32_t childIndex = cur.childMask ^ vMask;
+			uint32_t currentChildMask = cur.childMask;
+			cur.childMask |= mv;
+
+			if( node.mask & ( 0x1 << childIndex ) )
+			{
+                if( hasNext )
+			    {
+			    	stack[sp++] = cur;
+			    }
+				cur.nodeIndex = node.children[childIndex];
+				cur.tx0 = ( currentChildMask & 1u ) ? txM : cur.tx0;
+				cur.ty0 = ( currentChildMask & 2u ) ? tyM : cur.ty0;
+				cur.tz0 = ( currentChildMask & 4u ) ? tzM : cur.tz0;
+				cur.tx1 = x1;
+				cur.ty1 = y1;
+				cur.tz1 = z1;
+				cur.S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
+				cur.childMask = 0xFFFFFFFF;
+				goto next;
+			}
+
+			if( hasNext == false )
+			{
+				break;
+			}
+			switch( mv )
+			{
+			case 1:
+				x1 = cur.tx1;
+				break;
+			case 2:
+				y1 = cur.ty1;
+				break;
+			case 4:
+				z1 = cur.tz1;
+				break;
+			}
+		}
+
+	pop:
+		if( sp )
+		{
+			cur = stack[--sp];
+		}
+		else
+		{
+			break;
+		}
+	}
+#else
+	// stackful ver
 	struct StackElement
 	{
 		uint32_t nodeIndex;
@@ -599,7 +733,7 @@ void octreeTraverse_EfficientParametric(
 	StackElement stack[512];
 	int sp = 0;
 	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 1.0f };
-
+	glm::vec3 dt = t1 - t0;
 	for( ;; )
 	{
 		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
@@ -722,199 +856,10 @@ void octreeTraverse_EfficientParametric(
 			break;
 		}
 	}
-
-#if 0
-    // Loop ver
-	struct StackElement
-	{
-		uint32_t nodeIndex;
-		float tx0;
-		float ty0;
-		float tz0;
-		float tx1;
-		float ty1;
-		float tz1;
-	};
-	StackElement stack[512];
-	int sp = 0;
-    StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z };
-
-	for( ;; )
-	{
-		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
-		float S_umin = minElement( cur.tx1, cur.ty1, cur.tz1 );
-
-		if( glm::min( S_umin, *t ) < glm::max( S_lmax, 0.0f ) )
-		{
-			goto pop;
-		}
-
-		if( cur.nodeIndex == -1 )
-		{
-			if( S_lmax < *t )
-			{
-				*t = S_lmax;
-
-				if( S_lmax == cur.tx0 )
-				{
-					*nMajor = 1;
-				}
-				else if( S_lmax == cur.ty0 )
-				{
-					*nMajor = 2;
-				}
-				else
-				{
-					*nMajor = 0;
-				}
-			}
-
-			goto pop;
-		}
-
-        
-		float txM = 0.5f * ( cur.tx0 + cur.tx1 );
-		float tyM = 0.5f * ( cur.ty0 + cur.ty1 );
-		float tzM = 0.5f * ( cur.tz0 + cur.tz1 );
-
-        uint32_t childMask =
-			( txM < S_lmax ? 1u : 0u ) |
-			( tyM < S_lmax ? 2u : 0u ) |
-			( tzM < S_lmax ? 4u : 0u );
-
-		uint32_t children = 0;
-		int nChild = 0;
-
-		const OctreeNode& node = nodes[cur.nodeIndex];
-		for( ;; )
-		{
-			float x1 = ( childMask & 1u ) ? cur.tx1 : txM;
-			float y1 = ( childMask & 2u ) ? cur.ty1 : tyM;
-			float z1 = ( childMask & 4u ) ? cur.tz1 : tzM;
-			if( node.mask & ( 0x1 << ( childMask ^ vMask ) ) )
-			{
-				children = ( children << 3 ) | childMask;
-				nChild++;
-			}
-
-            // find minimum( x1, y1, z1 ) for next hit
-			uint32_t mv;
-			if( x1 < y1 )
-			{
-				mv = x1 < z1 ? 1u : 4u;
-			}
-			else
-			{
-				mv = y1 < z1 ? 2u : 4u;
-			}
-
-			if( childMask & mv )
-			{
-				break;
-			}
-			childMask |= mv;
-		}
-
-        for( int i = 0; i < nChild; i++ )
-		{
-			uint32_t child = ( children >> ( i * 3 ) ) & 0x7;
-			float x1 = ( child & 1u ) ? cur.tx1 : txM;
-			float y1 = ( child & 2u ) ? cur.ty1 : tyM;
-			float z1 = ( child & 4u ) ? cur.tz1 : tzM;
-            float x0 = ( child & 1u ) ? txM : cur.tx0;
-			float y0 = ( child & 2u ) ? tyM : cur.ty0;
-			float z0 = ( child & 4u ) ? tzM : cur.tz0;
-
-            if( i + 1 == nChild )
-			{
-				cur.nodeIndex = node.children[child ^ vMask];
-				cur.tx0 = x0;
-				cur.ty0 = y0;
-				cur.tz0 = z0;
-				cur.tx1 = x1;
-				cur.ty1 = y1;
-				cur.tz1 = z1;
-				break;
-			}
-			else
-			{
-				stack[sp].nodeIndex = node.children[child ^ vMask];
-				stack[sp].tx0 = x0;
-				stack[sp].ty0 = y0;
-				stack[sp].tz0 = z0;
-				stack[sp].tx1 = x1;
-				stack[sp].ty1 = y1;
-				stack[sp].tz1 = z1;
-				sp++;
-			}
-		}
-
-		if( nChild )
-		{
-			continue;
-		}
-    pop:
-		if( sp )
-		{
-			cur = stack[--sp];
-			continue;
-		}
-		else
-		{
-			break;
-		}
-	}
-
 #endif
 
 #endif
 
-#if 0
-    glm::vec3 tmid = ( t0 + t1 ) * 0.5f;
-	uint32_t childMask =
-		( tmid.x < S_lmax ? 1u : 0u ) |
-		( tmid.y < S_lmax ? 2u : 0u ) |
-		( tmid.z < S_lmax ? 4u : 0u );
-
-    int bindex = 0;
-	for( ;; )
-	{
-		glm::vec3 hsize = ( upper - lower ) * 0.5f;
-		glm::vec3 o =
-			{
-				lower.x + ( ( childMask ^ vMask ) & 1u ? hsize.x : 0.0f ),
-				lower.y + ( ( childMask ^ vMask ) & 2u ? hsize.y : 0.0f ),
-				lower.z + ( ( childMask ^ vMask ) & 4u ? hsize.z : 0.0f ),
-			};
-		drawAABBscaled( o, o + hsize, 0.93f, { 0, 0, 255 }, 2 );
-		pr::DrawText( o + hsize * 0.5f, std::to_string( bindex++ ) );
-
-		float xborder = childMask & 1u ? t1.x : tmid.x;
-		float yborder = childMask & 2u ? t1.y : tmid.y;
-		float zborder = childMask & 4u ? t1.z : tmid.z;
-		float nPlane = minElement( xborder, yborder, zborder );
-
-		uint32_t mv;
-		if( nPlane == xborder )
-		{
-			mv = 1u;
-		}
-		else if( nPlane == yborder )
-		{
-			mv = 2u;
-		}
-		else
-		{
-			mv = 4u;
-		}
-
-        if( childMask & mv )
-        {
-			break;
-        }
-		childMask |= mv;
-	}
-#endif
 }
 
 void octreeTraverseNaive(
