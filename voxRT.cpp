@@ -119,7 +119,8 @@ int main()
 	enum DAGBUILD
 	{
 		DAGBUILD_NO,
-		DAGBUILD_REF
+		DAGBUILD_REF,
+		DAGBUILD_APROX,
 	};
 	int dagBuild = DAGBUILD_REF;
 
@@ -242,9 +243,13 @@ int main()
 			{
 				octreeVoxel->build( accInputs, origin, dps, gridRes );
 			}
-			else
+			else if( dagBuild == DAGBUILD_REF )
 			{
 				octreeVoxel->buildDAGReference( accInputs, origin, dps, gridRes );
+			}
+			else
+			{
+				octreeVoxel->buildDAGApprox( accInputs, origin, dps, gridRes );
 			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
 		}
@@ -375,7 +380,8 @@ int main()
 
 		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
 		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
-
+		ImGui::RadioButton( "DAG: approximation", &dagBuild, DAGBUILD_APROX );
+		
 		ImGui::End();
 
 		EndImGui();

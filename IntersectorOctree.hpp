@@ -7,30 +7,48 @@
 #include "morton.hpp"
 
 
-class SequencialHasher
+inline uint32_t hash( uint32_t x )
 {
-public:
-	void add( uint32_t xs, uint32_t resolution )
-	{
-		m_h += m_base * xs;
-		m_base *= resolution;
-	}
-	uint32_t value() const { return m_h; }
-
-private:
-	uint32_t m_base = 1;
-	uint32_t m_h = 0;
-};
+	x *= 0x9e3779b9u;
+	x ^= x >> 16;
+	return x;
+}
 
 struct OctreeTask
 {
 	uint64_t morton;
 	uint32_t child;
 };
+
 struct OctreeNode
 {
 	uint8_t mask;
 	uint32_t children[8];
+
+	uint32_t getHash() const
+	{
+		uint32_t h = hash( mask );
+		for( int i = 0; i < 8; i++ )
+		{
+			h = h ^ hash( children[i] );
+		}
+		return h;
+	}
+	bool operator==( const OctreeNode& rhs )
+	{
+		if( mask != rhs.mask )
+		{
+			return false;
+		}
+		for( int i = 0; i < 8; i++ )
+		{
+			if( children[i] != rhs.children[i] )
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 
 	bool operator<( const OctreeNode& rhs ) const
 	{
@@ -51,6 +69,7 @@ struct OctreeNode
 		return false;
 	}
 };
+
 inline float maxElement( float a, float b, float c )
 {
 	return glm::max( glm::max( a, b ), c );
@@ -58,13 +77,6 @@ inline float maxElement( float a, float b, float c )
 inline float minElement( float a, float b, float c )
 {
 	return glm::min( glm::min( a, b ), c );
-}
-
-inline uint32_t hash( uint32_t x )
-{
-	x *= 0x9e3779b9u;
-	x ^= x >> 16;
-	return x;
 }
 
 inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
@@ -167,7 +179,128 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 		wide /= 2;
 	}
 }
+inline void buildOctreeDAGApprox( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
+{
+	nodes->clear();
 
+	std::vector<OctreeTask> curTasks;
+	for( auto m : mortonVoxels )
+	{
+		OctreeTask task;
+		task.morton = m;
+		task.child = -1;
+		curTasks.push_back( task );
+	}
+	std::vector<OctreeTask> nextTasks;
+
+	struct MortonGroup
+	{
+		int beg;
+		int end;
+	};
+
+	enum : uint32_t
+	{
+		TABLE_OCCUPIED_BIT = 1u << 31
+	};
+
+	while( 1 < wide )
+	{
+		std::vector<uint32_t> nodeTable( mortonVoxels.size() );
+		
+		// make groups
+		std::vector<MortonGroup> groups;
+		MortonGroup group = { -1, -1 };
+		for( int i = 0; i < curTasks.size(); i++ )
+		{
+			if( group.beg == -1 )
+			{
+				group.beg = i;
+				group.end = i + 1;
+				// parent = curTasks[i].morton >> 3;
+				continue;
+			}
+
+			uint64_t pMorton = curTasks[group.beg].morton >> 3; // Parent
+			if( pMorton == ( curTasks[i].morton >> 3 ) )
+			{
+				group.end = i + 1;
+			}
+			else
+			{
+				groups.push_back( group );
+				group.beg = i;
+				group.end = i + 1;
+			}
+		}
+		if( group.beg != -1 )
+		{
+			groups.push_back( group );
+		}
+
+		for( int i = 0; i < groups.size(); i++ )
+		{
+			MortonGroup group = groups[i];
+
+			OctreeNode node;
+			node.mask = 0;
+			for( int j = 0; j < 8; j++ )
+			{
+				node.children[j] = -1;
+			}
+
+			// set child
+			for( int j = group.beg; j < group.end; j++ )
+			{
+				uint32_t space = curTasks[j].morton & 0x7;
+				node.mask |= ( 1 << space ) & 0xFF;
+				node.children[space] = curTasks[j].child;
+			}
+
+			// Approximated duplication removal
+			uint32_t nodeIndex = -1;
+
+			uint32_t h = node.getHash() % nodeTable.size();
+			uint32_t bucketIndex = -1;
+
+			for( int j = 0; j < 16; j++ )
+			{
+				int index = ( h + j ) % nodeTable.size();
+				bool occupied = nodeTable[index] & TABLE_OCCUPIED_BIT;
+				if (!occupied)
+				{
+					bucketIndex = index;
+					break;
+				}
+				uint32_t idx = nodeTable[index] & ( ~TABLE_OCCUPIED_BIT );
+				if( node == ( *nodes )[idx] )
+				{
+					nodeIndex = idx;
+					break;
+				}
+			}
+			if( nodeIndex == -1 )
+			{
+				nodeIndex = nodes->size();
+				nodes->push_back( node );
+				if( bucketIndex != -1 )
+				{
+					nodeTable[bucketIndex] = nodeIndex | TABLE_OCCUPIED_BIT;
+				}
+			}
+
+			OctreeTask nextTask;
+			nextTask.morton = curTasks[group.beg].morton >> 3;
+			nextTask.child = nodeIndex;
+			nextTasks.push_back( nextTask );
+		}
+
+		curTasks.clear();
+		std::swap( curTasks, nextTasks );
+
+		wide /= 2;
+	}
+}
 inline void buildOctreeNaive( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
 {
 	nodes->clear();
@@ -583,6 +716,12 @@ public:
 		m_lower = origin;
 		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
 		buildOctreeDAGReference( &m_nodes, mortonVoxels, gridRes );
+	}
+	void buildDAGApprox( const std::set<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps, int gridRes )
+	{
+		m_lower = origin;
+		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
+		buildOctreeDAGApprox( &m_nodes, mortonVoxels, gridRes );
 	}
 	void intersect( const glm::vec3& ro, const glm::vec3& rd, float* t, int* nMajor )
 	{
