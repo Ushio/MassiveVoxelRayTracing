@@ -566,12 +566,12 @@ void octreeTraverse_EfficientParametric(
     // const float kMinDir = 1.08420217249e-19f;
 	// one_over_rd = glm::min( one_over_rd, glm::vec3( 1.0f / kMinDir ) );
 
-    glm::vec3 X = glm::vec3( FLT_MAX ) / 
+    glm::vec3 bound = glm::vec3( FLT_MAX ) / 
         glm::max( 
             glm::max( glm::abs( lower - ro ), glm::abs( upper - ro ) ), 
             glm::vec3( 1.0f ) 
         );
-	one_over_rd = glm::min( one_over_rd, X );
+	one_over_rd = glm::min( one_over_rd, bound );
 
 	glm::vec3 t0 = ( lower - ro ) * one_over_rd;
 	glm::vec3 t1 = ( upper - ro ) * one_over_rd;
