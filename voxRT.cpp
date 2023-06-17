@@ -114,6 +114,7 @@ int main()
 	bool drawModel = true;
 	bool drawWire = false;
 	bool buildAccelerationStructure = true;
+	bool renderParallel = false;
 
 	enum DAGBUILD
 	{
@@ -176,7 +177,6 @@ int main()
 		}
 
 		static std::vector<uint64_t> mortonVoxels;
-		mortonVoxels.clear();
 
 		Stopwatch sw;
 
@@ -184,27 +184,31 @@ int main()
 		glm::vec3 bbox_size = bbox_upper - bbox_lower;
 		float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
 
-		for( int i = 0; i < vertices.size(); i += 3 )
+		if( buildAccelerationStructure )
 		{
-			glm::vec3 v0 = vertices[i];
-			glm::vec3 v1 = vertices[i + 1];
-			glm::vec3 v2 = vertices[i + 2];
-
-			VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
-			glm::ivec2 xrange = context.xRangeInclusive();
-			for( int x = xrange.x; x <= xrange.y; x++ )
+			mortonVoxels.clear();
+			for( int i = 0; i < vertices.size(); i += 3 )
 			{
-				glm::ivec2 yrange = context.yRangeInclusive( x, dps );
-				for( int y = yrange.x; y <= yrange.y; y++ )
+				glm::vec3 v0 = vertices[i];
+				glm::vec3 v1 = vertices[i + 1];
+				glm::vec3 v2 = vertices[i + 2];
+
+				VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
+				glm::ivec2 xrange = context.xRangeInclusive();
+				for( int x = xrange.x; x <= xrange.y; x++ )
 				{
-					glm::ivec2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
-					for( int z = zrange.x; z <= zrange.y; z++ )
+					glm::ivec2 yrange = context.yRangeInclusive( x, dps );
+					for( int y = yrange.x; y <= yrange.y; y++ )
 					{
-						glm::vec3 p = context.p( x, y, z, dps );
-						if( context.intersect( p ) )
+						glm::ivec2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
+						for( int z = zrange.x; z <= zrange.y; z++ )
 						{
-							glm::ivec3 c = context.i( x, y, z );
-							mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
+							glm::vec3 p = context.p( x, y, z, dps );
+							if( context.intersect( p ) )
+							{
+								glm::ivec3 c = context.i( x, y, z );
+								mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
+							}
 						}
 					}
 				}
@@ -275,9 +279,8 @@ int main()
 		CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
 
 		sw = Stopwatch();
-		// ParallelFor(image.height(), [&](int j)
-		for( int j = 0; j < image.height(); ++j )
-		{
+
+		auto renderLine = [&]( int j ) {
 			for( int i = 0; i < image.width(); ++i )
 			{
 				glm::vec3 ro, rd;
@@ -306,8 +309,18 @@ int main()
 					image( i, j ) = { 0, 0, 0, 255 };
 				}
 			}
+		};
+		if( renderParallel )
+		{
+			ParallelFor( image.height(), renderLine );
 		}
-		//);
+		else
+		{
+			for( int j = 0; j < image.height(); ++j )
+			{
+				renderLine( j );
+			}
+		}
 		double RT_MS = sw.elapsed();
 
 		if( bgTexture == nullptr )
@@ -337,20 +350,26 @@ int main()
 			gridRes /= 2;
 		}
 		ImGui::Checkbox( "sixSeparating", &sixSeparating );
-		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
-
+		
 		ImGui::SeparatorText( "Drawing" );
 		ImGui::Checkbox( "drawModel", &drawModel );
 		ImGui::Checkbox( "drawWire", &drawWire );
 
 		ImGui::SeparatorText( "Acceleration" );
+
+		if( 1000.0 < octreeBuildMS )
+		{
+			buildAccelerationStructure = false;
+		}
+
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
+		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
 		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
 		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
 		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
 		ImGui::Text( "embree = %lld byte", embreeVoxel->getMemoryConsumption() );
 		ImGui::Text( "RT (ms) = %f", RT_MS );
-		
+		ImGui::Checkbox( "renderParallel", &renderParallel );
 		ImGui::RadioButton( "Intersector: Octree", &intersector, INTERSECTOR_OCTREE );
 		ImGui::RadioButton( "Intersector: Embree", &intersector, INTERSECTOR_EMBREE );
 
