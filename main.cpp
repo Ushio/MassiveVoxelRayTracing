@@ -635,19 +635,10 @@ void octreeTraverse_EfficientParametric(
 			if( 0.0f < cur.S_lmax ) // positive hit point only
 			{
 				*t = cur.S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
-
-				if( cur.S_lmax == cur.tx0 )
-				{
-					*nMajor = 1;
-				}
-				else if( cur.S_lmax == cur.ty0 )
-				{
-					*nMajor = 2;
-				}
-				else
-				{
-					*nMajor = 0;
-				}
+                *nMajor =
+					cur.S_lmax == cur.tx0 ? 1 : 
+                        ( cur.S_lmax == cur.ty0 ? 2 : 
+                            0 );
 
 				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
 				break;
@@ -676,15 +667,10 @@ void octreeTraverse_EfficientParametric(
 		for( ;; )
 		{
 			// find minimum( x1, y1, z1 ) for next hit
-			uint32_t mv;
-			if( x1 < y1 )
-			{
-				mv = x1 < z1 ? 1u : 4u;
-			}
-			else
-			{
-				mv = y1 < z1 ? 2u : 4u;
-			}
+            uint32_t mv =
+				x1 < y1 ? 
+                    ( x1 < z1 ? 1u : 4u ) : 
+                    ( y1 < z1 ? 2u : 4u );
 
             bool hasNext = ( cur.childMask & mv ) == 0;
 			uint32_t childIndex = cur.childMask ^ vMask;
@@ -770,18 +756,10 @@ void octreeTraverse_EfficientParametric(
 			{
 			    *t = S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
 
-			    if( S_lmax == cur.tx0 )
-			    {
-				    *nMajor = 1;
-			    }
-			    else if( S_lmax == cur.ty0 )
-			    {
-				    *nMajor = 2;
-			    }
-			    else
-			    {
-				    *nMajor = 0;
-			    }
+			    *nMajor =
+					S_lmax == cur.tx0 ? 1 : 
+                        ( S_lmax == cur.ty0 ? 2 : 
+                            0 );
 
                 // Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
 			    break;
@@ -815,15 +793,10 @@ void octreeTraverse_EfficientParametric(
 			}
 
 			// find minimum( x1, y1, z1 ) for next hit
-			uint32_t mv;
-			if( x1 < y1 )
-			{
-				mv = x1 < z1 ? 1u : 4u;
-			}
-			else
-			{
-				mv = y1 < z1 ? 2u : 4u;
-			}
+            uint32_t mv =
+				x1 < y1 ? 
+                    ( x1 < z1 ? 1u : 4u ) : 
+                    ( y1 < z1 ? 2u : 4u );
 
 			if( childMask & mv )
 			{
