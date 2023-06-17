@@ -125,8 +125,8 @@ void octreeTraverse_EfficientParametric(
 	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
 	glm::vec3 ro,
 	glm::vec3 one_over_rd,
-	glm::vec3 lower,
-	glm::vec3 upper,
+	const glm::vec3& lower,
+	const glm::vec3& upper,
 	float* t, int* nMajor )
 {
 	uint32_t vMask = 0;
@@ -438,24 +438,21 @@ public:
 
 	void build( const std::set<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps, int gridRes )
 	{
-		m_origin = origin;
-		m_dps = dps;
-		m_gridRes = gridRes;
+		m_lower = origin;
+		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
 		buildOctree( &m_nodes, mortonVoxels, gridRes );
 	}
-	void intersect( glm::vec3 ro, glm::vec3 rd, float* t, int* nMajor )
+	void intersect( const glm::vec3& ro, const glm::vec3& rd, float* t, int* nMajor )
 	{
-		glm::vec3 upper = m_origin + glm::vec3( m_dps, m_dps, m_dps ) * (float)m_gridRes;
 		glm::vec3 one_over_rd = glm::vec3( 1.0f ) / rd;
-		octreeTraverse_EfficientParametric( m_nodes, m_nodes.size() - 1, ro, one_over_rd, m_origin, upper, t, nMajor );
+		octreeTraverse_EfficientParametric( m_nodes, m_nodes.size() - 1, ro, one_over_rd, m_lower, m_upper, t, nMajor );
 	}
 
 	uint64_t getMemoryConsumption()
 	{
 		return m_nodes.size() * sizeof( OctreeNode );
 	}
-	glm::vec3 m_origin = glm::vec3( 0.0f );
-	float m_dps = 0.0f;
-	int m_gridRes = 0;
+	glm::vec3 m_lower = glm::vec3( 0.0f );
+	glm::vec3 m_upper = glm::vec3( 0.0f );
 	std::vector<OctreeNode> m_nodes;
 };

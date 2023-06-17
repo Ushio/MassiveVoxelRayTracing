@@ -154,42 +154,42 @@ project "unittest"
         optimize "Full"
     filter{}
 
-project "main"
-    kind "ConsoleApp"
-    language "C++"
-    targetdir "bin/"
-    systemversion "latest"
-    flags { "MultiProcessorCompile", "NoPCH" }
+-- project "main"
+--     kind "ConsoleApp"
+--     language "C++"
+--     targetdir "bin/"
+--     systemversion "latest"
+--     flags { "MultiProcessorCompile", "NoPCH" }
 
-    -- Src
-    files { "main.cpp", "voxelization.hpp" }
+--     -- Src
+--     files { "main.cpp", "voxelization.hpp" }
 
-    -- UTF8
-    postbuildcommands { 
-        "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
-    }
+--     -- UTF8
+--     postbuildcommands { 
+--         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
+--     }
 
-    -- embree 4
-    libdirs { "libs/prlib/libs/embree4/lib" }
-    includedirs { "libs/prlib/libs/embree4/include" }
-    links{
-        "embree4",
-        "tbb",
-    }
-    postbuildcommands {
-        "{COPYFILE} ../libs/prlib/libs/embree4/bin/*.dll %{cfg.targetdir}/*.dll",
-    }
+--     -- embree 4
+--     libdirs { "libs/prlib/libs/embree4/lib" }
+--     includedirs { "libs/prlib/libs/embree4/include" }
+--     links{
+--         "embree4",
+--         "tbb",
+--     }
+--     postbuildcommands {
+--         "{COPYFILE} ../libs/prlib/libs/embree4/bin/*.dll %{cfg.targetdir}/*.dll",
+--     }
 
-    includePrLib()
+--     includePrLib()
 
-    symbols "On"
+--     symbols "On"
 
-    filter {"Debug"}
-        runtime "Debug"
-        targetname ("Main_Debug")
-        optimize "Off"
-    filter {"Release"}
-        runtime "Release"
-        targetname ("Main")
-        optimize "Full"
-    filter{}
+--     filter {"Debug"}
+--         runtime "Debug"
+--         targetname ("Main_Debug")
+--         optimize "Off"
+--     filter {"Release"}
+--         runtime "Release"
+--         targetname ("Main")
+--         optimize "Full"
+--     filter{}

@@ -3,6 +3,7 @@
 #include "voxelMeshWriter.hpp"
 #include "voxelization.hpp"
 #include "intersectorEmbree.hpp"
+#include "IntersectorOctree.hpp"
 #include <iostream>
 #include <memory>
 #include <set>
@@ -109,10 +110,20 @@ int main()
 	}
 
 	bool sixSeparating = true;
-	int gridRes = 128;
+	int gridRes = 512;
 	bool drawModel = true;
-	bool drawWire = true;
-	bool drawFace = true;
+	bool drawWire = false;
+	bool buildAccelerationStructure = true;
+
+	enum INTERSECTOR
+	{
+		INTERSECTOR_OCTREE,
+		INTERSECTOR_EMBREE,
+	};
+	pr::ITexture* bgTexture = 0;
+	std::shared_ptr<IntersectorOctree> octreeVoxel( new IntersectorOctree() );
+	std::shared_ptr<IntersectorEmbree> embreeVoxel( new IntersectorEmbree() );
+	int intersector = INTERSECTOR_OCTREE;
 
 	SetDepthTest( true );
 
@@ -122,7 +133,14 @@ int main()
 		{
 			UpdateCameraBlenderLike( &camera );
 		}
-		ClearBackground( 0.1f, 0.1f, 0.1f, 1 );
+		if( bgTexture )
+		{
+			ClearBackground( bgTexture );
+		}
+		else
+		{
+			ClearBackground( 0.1f, 0.1f, 0.1f, 1 );
+		}
 
 		BeginCamera( camera );
 
@@ -194,6 +212,97 @@ int main()
 			drawVoxelsWire( mortonVoxels, origin, dps, { 200, 200, 200 } );
 		}
 
+		double octreeBuildMS = 0.0;
+		double embreeBuildMS = 0.0;
+		if( buildAccelerationStructure )
+		{
+			static std::set<uint64_t> accInputs;
+			accInputs.clear();
+			for( auto v : mortonVoxels )
+			{
+				accInputs.insert( v );
+			}
+
+			sw = Stopwatch();
+			embreeVoxel->build( accInputs, origin, dps );
+			embreeBuildMS = sw.elapsed() * 1000.0;
+			sw = Stopwatch();
+			octreeVoxel->build( accInputs, origin, dps, gridRes );
+			octreeBuildMS = sw.elapsed() * 1000.0;
+		}
+
+		// A single ray test
+		{
+			static glm::vec3 from = { -3, -3, -3 };
+			static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
+			ManipulatePosition( camera, &from, 1 );
+			ManipulatePosition( camera, &to, 1 );
+
+			DrawText( from, "from" );
+			DrawText( to, "to" );
+			DrawLine( from, to, { 128, 128, 128 } );
+
+			float t = FLT_MAX;
+			int nMajor;
+			glm::vec3 ro = from;
+			glm::vec3 rd = to - from;
+			octreeVoxel->intersect( ro, rd, &t, &nMajor );
+
+			DrawSphere( ro + rd * t, 0.01f, { 255, 0, 0 } );
+
+			glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f, nMajor );
+			DrawArrow( ro + rd * t, ro + rd * t + hitN * 0.1f, 0.01f, { 255, 0, 0 } );
+		}
+
+		#if 1
+		Image2DRGBA8 image;
+		image.allocate( GetScreenWidth(), GetScreenHeight() );
+
+		CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
+
+		sw = Stopwatch();
+		// ParallelFor(image.height(), [&](int j)
+		for( int j = 0; j < image.height(); ++j )
+		{
+			for( int i = 0; i < image.width(); ++i )
+			{
+				glm::vec3 ro, rd;
+				rayGenerator.shoot( &ro, &rd, i, j, 0.5f, 0.5f );
+				glm::vec3 one_over_rd = glm::vec3( 1.0f ) / rd;
+
+				float t = FLT_MAX;
+				int nMajor;
+				if( intersector == INTERSECTOR_EMBREE )
+				{
+					embreeVoxel->intersect( ro, rd, &t, &nMajor );
+				}
+				else if( intersector == INTERSECTOR_OCTREE )
+				{
+					octreeVoxel->intersect( ro, rd, &t, &nMajor );
+				}
+
+				if( t != FLT_MAX )
+				{
+					glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f, nMajor );
+					glm::vec3 color = ( hitN + glm::vec3( 1.0f ) ) * 0.5f;
+					image( i, j ) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+				}
+				else
+				{
+					image( i, j ) = { 0, 0, 0, 255 };
+				}
+			}
+		}
+		//);
+		double RT_MS = sw.elapsed();
+
+		if( bgTexture == nullptr )
+		{
+			bgTexture = CreateTexture();
+		}
+		bgTexture->upload( image );
+#endif
+
 		PopGraphicState();
 		EndCamera();
 
@@ -205,17 +314,31 @@ int main()
 
 		ImGui::SeparatorText( "Voxlizaiton" );
 		ImGui::InputInt( "gridRes", &gridRes );
+		if( ImGui::Button( "+", ImVec2( 100, 30 ) ) )
+		{
+			gridRes *= 2;
+		}
+		if( ImGui::Button( "-", ImVec2( 100, 30 ) ) )
+		{
+			gridRes /= 2;
+		}
 		ImGui::Checkbox( "sixSeparating", &sixSeparating );
-
-		ImGui::SeparatorText( "Perf" );
 		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
 
 		ImGui::SeparatorText( "Drawing" );
 		ImGui::Checkbox( "drawModel", &drawModel );
 		ImGui::Checkbox( "drawWire", &drawWire );
-		ImGui::Checkbox( "drawFace", &drawFace );
 
-		ImGui::SeparatorText( "Save" );
+		ImGui::SeparatorText( "Acceleration" );
+		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
+		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
+		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
+		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
+		ImGui::Text( "embree = %lld byte", embreeVoxel->getMemoryConsumption() );
+		ImGui::Text( "RT (ms) = %f", RT_MS );
+		
+		ImGui::RadioButton( "Intersector: Octree", &intersector, INTERSECTOR_OCTREE );
+		ImGui::RadioButton( "Intersector: Embree", &intersector, INTERSECTOR_EMBREE );
 
 		ImGui::End();
 
