@@ -595,15 +595,31 @@ void octreeTraverse_EfficientParametric(
 		float tx0;
 		float ty0;
 		float tz0;
+
+		float S_lmax;
 		float tx1;
 		float ty1;
 		float tz1;
-		float S_lmax;
+
 		uint32_t childMask;
 	};
-    StackElement stack[512];
+	auto copyStackElement = []( StackElement& dst, const StackElement& src ) {
+		dst.nodeIndex = src.nodeIndex;
+		dst.tx0 = src.tx0;
+		dst.ty0 = src.ty0;
+		dst.tz0 = src.tz0;
+
+		dst.S_lmax = src.S_lmax;
+		dst.tx1 = src.tx1;
+		dst.ty1 = src.ty1;
+		dst.tz1 = src.tz1;
+
+		dst.childMask = src.childMask;
+	};
+
+    StackElement stack[32];
 	int sp = 0;
-	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, t1.x, t1.y, t1.z, S_lmaxTop, 0xFFFFFFFF };
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, S_lmaxTop, t1.x, t1.y, t1.z, 0xFFFFFFFF };
 	
 	for( ;; )
 	{
@@ -679,7 +695,7 @@ void octreeTraverse_EfficientParametric(
 			{
                 if( hasNext )
 			    {
-			    	stack[sp++] = cur;
+					copyStackElement( stack[sp++], cur );
 			    }
 				cur.nodeIndex = node.children[childIndex];
 				cur.tx0 = ( currentChildMask & 1u ) ? txM : cur.tx0;
@@ -714,7 +730,7 @@ void octreeTraverse_EfficientParametric(
 	pop:
 		if( sp )
 		{
-			cur = stack[--sp];
+			copyStackElement( cur, stack[--sp] );
 		}
 		else
 		{
