@@ -115,6 +115,13 @@ int main()
 	bool drawWire = false;
 	bool buildAccelerationStructure = true;
 
+	enum DAGBUILD
+	{
+		DAGBUILD_NO,
+		DAGBUILD_REF
+	};
+	int dagBuild = DAGBUILD_REF;
+
 	enum INTERSECTOR
 	{
 		INTERSECTOR_OCTREE,
@@ -227,7 +234,14 @@ int main()
 			embreeVoxel->build( accInputs, origin, dps );
 			embreeBuildMS = sw.elapsed() * 1000.0;
 			sw = Stopwatch();
-			octreeVoxel->build( accInputs, origin, dps, gridRes );
+			if( dagBuild == DAGBUILD_NO )
+			{
+				octreeVoxel->build( accInputs, origin, dps, gridRes );
+			}
+			else
+			{
+				octreeVoxel->buildDAGReference( accInputs, origin, dps, gridRes );
+			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
 		}
 
@@ -339,6 +353,9 @@ int main()
 		
 		ImGui::RadioButton( "Intersector: Octree", &intersector, INTERSECTOR_OCTREE );
 		ImGui::RadioButton( "Intersector: Embree", &intersector, INTERSECTOR_EMBREE );
+
+		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
+		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
 
 		ImGui::End();
 

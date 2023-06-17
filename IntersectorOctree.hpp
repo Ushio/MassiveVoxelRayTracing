@@ -31,6 +31,25 @@ struct OctreeNode
 {
 	uint8_t mask;
 	uint32_t children[8];
+
+	bool operator<( const OctreeNode& rhs ) const
+	{
+		// maybe fix this later
+		if( mask != rhs.mask )
+		{
+			return mask < rhs.mask;
+		}
+
+		for( int i = 0; i < 8; i++ )
+		{
+			if( children[i] == rhs.children[i] )
+			{
+				continue;
+			}
+			return children[i] < rhs.children[i];
+		}
+		return false;
+	}
 };
 inline float maxElement( float a, float b, float c )
 {
@@ -41,8 +60,115 @@ inline float minElement( float a, float b, float c )
 	return glm::min( glm::min( a, b ), c );
 }
 
-#if 1
-inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
+inline uint32_t hash( uint32_t x )
+{
+	x *= 0x9e3779b9u;
+	x ^= x >> 16;
+	return x;
+}
+
+inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
+{
+	nodes->clear();
+
+	std::vector<OctreeTask> curTasks;
+	for( auto m : mortonVoxels )
+	{
+		OctreeTask task;
+		task.morton = m;
+		task.child = -1;
+		curTasks.push_back( task );
+	}
+	std::vector<OctreeTask> nextTasks;
+
+	struct MortonGroup
+	{
+		int beg;
+		int end;
+	};
+
+	// Reference
+	std::map<OctreeNode, int> existings;
+
+	while( 1 < wide )
+	{
+		// make groups
+		std::vector<MortonGroup> groups;
+		MortonGroup group = { -1, -1 };
+		for( int i = 0; i < curTasks.size(); i++ )
+		{
+			if( group.beg == -1 )
+			{
+				group.beg = i;
+				group.end = i + 1;
+				// parent = curTasks[i].morton >> 3;
+				continue;
+			}
+
+			uint64_t pMorton = curTasks[group.beg].morton >> 3; // Parent
+			if( pMorton == ( curTasks[i].morton >> 3 ) )
+			{
+				group.end = i + 1;
+			}
+			else
+			{
+				groups.push_back( group );
+				group.beg = i;
+				group.end = i + 1;
+			}
+		}
+		if( group.beg != -1 )
+		{
+			groups.push_back( group );
+		}
+
+		for( int i = 0; i < groups.size(); i++ )
+		{
+			MortonGroup group = groups[i];
+
+			OctreeNode node;
+			node.mask = 0;
+			for( int j = 0; j < 8; j++ )
+			{
+				node.children[j] = -1;
+			}
+
+			// set child
+			for( int j = group.beg; j < group.end; j++ )
+			{
+				uint32_t space = curTasks[j].morton & 0x7;
+				node.mask |= ( 1 << space ) & 0xFF;
+				node.children[space] = curTasks[j].child;
+			}
+
+			uint32_t nodeIndex;
+
+			auto it = existings.find( node );
+			if( it == existings.end() )
+			{
+				nodeIndex = nodes->size();
+				nodes->push_back( node );
+				existings[node] = nodeIndex;
+			}
+			else
+			{
+				nodeIndex = it->second;
+			}
+
+			OctreeTask nextTask;
+			nextTask.morton = curTasks[group.beg].morton >> 3;
+			nextTask.child = nodeIndex;
+			nextTasks.push_back( nextTask );
+		}
+
+		curTasks.clear();
+		std::swap( curTasks, nextTasks );
+
+		wide /= 2;
+	}
+}
+
+inline void buildOctreeNaive( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
 {
 	nodes->clear();
 
@@ -107,7 +233,6 @@ inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t
 			}
 
 			// set child
-			// PR_ASSERT( sameParent.size() <= 8 );
 			for( int j = group.beg; j < group.end; j++ )
 			{
 				uint32_t space = curTasks[j].morton & 0x7;
@@ -130,88 +255,6 @@ inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t
 		wide /= 2;
 	}
 }
-#else
-inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
-{
-	nodes->clear();
-
-	std::vector<OctreeTask> curTasks;
-	for( auto m : mortonVoxels )
-	{
-		OctreeTask task;
-		task.morton = m;
-		task.child = -1;
-		curTasks.push_back( task );
-	}
-	std::vector<OctreeTask> nextTasks;
-
-	while( 1 < wide )
-	{
-		std::vector<OctreeTask> sameParent;
-		uint64_t parent = -1;
-
-		auto emit = [&]()
-		{
-			// allocate
-			uint32_t c = nodes->size();
-			nodes->push_back( OctreeNode() );
-			( *nodes )[c].mask = 0;
-			for( int i = 0; i < 8; i++ )
-			{
-				( *nodes )[c].children[i] = -1;
-			}
-
-			// set child
-			PR_ASSERT( sameParent.size() <= 8 );
-			for( int i = 0; i < sameParent.size(); i++ )
-			{
-				uint32_t space = sameParent[i].morton & 0x7;
-				( *nodes )[c].mask |= ( 1 << space ) & 0xFF;
-				( *nodes )[c].children[space] = sameParent[i].child;
-			}
-
-			OctreeTask nextTask;
-			nextTask.morton = parent;
-			nextTask.child = c;
-			nextTasks.push_back( nextTask );
-
-			parent = -1;
-			sameParent.clear();
-		};
-
-		for( int i = 0; i < curTasks.size(); i++ )
-		{
-			if( parent == -1 )
-			{
-				sameParent.push_back( curTasks[i] );
-				parent = curTasks[i].morton >> 3;
-				continue;
-			}
-
-			if( parent == ( curTasks[i].morton >> 3 ) )
-			{
-				sameParent.push_back( curTasks[i] );
-			}
-			else
-			{
-				emit();
-				sameParent.push_back( curTasks[i] );
-				parent = curTasks[i].morton >> 3;
-			}
-		}
-
-		if( sameParent.size() )
-		{
-			emit();
-		}
-
-		curTasks.clear();
-		std::swap( curTasks, nextTasks );
-
-		wide /= 2;
-	}
-}
-#endif
 
 void octreeTraverse_EfficientParametric(
 	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
@@ -532,7 +575,14 @@ public:
 	{
 		m_lower = origin;
 		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
-		buildOctree( &m_nodes, mortonVoxels, gridRes );
+		buildOctreeNaive( &m_nodes, mortonVoxels, gridRes );
+	}
+
+	void buildDAGReference( const std::set<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps, int gridRes )
+	{
+		m_lower = origin;
+		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
+		buildOctreeDAGReference( &m_nodes, mortonVoxels, gridRes );
 	}
 	void intersect( const glm::vec3& ro, const glm::vec3& rd, float* t, int* nMajor )
 	{
