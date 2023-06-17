@@ -40,6 +40,97 @@ inline float minElement( float a, float b, float c )
 {
 	return glm::min( glm::min( a, b ), c );
 }
+
+#if 1
+inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
+{
+	nodes->clear();
+
+	std::vector<OctreeTask> curTasks;
+	for( auto m : mortonVoxels )
+	{
+		OctreeTask task;
+		task.morton = m;
+		task.child = -1;
+		curTasks.push_back( task );
+	}
+	std::vector<OctreeTask> nextTasks;
+
+	struct MortonGroup
+	{
+		int beg;
+		int end;
+	};
+
+	while( 1 < wide )
+	{
+		// make groups
+		std::vector<MortonGroup> groups;
+		MortonGroup group = { -1, -1 };
+		for( int i = 0; i < curTasks.size(); i++ )
+		{
+			if( group.beg == -1 )
+			{
+				group.beg = i;
+				group.end = i + 1;
+				// parent = curTasks[i].morton >> 3;
+				continue;
+			}
+
+			uint64_t pMorton = curTasks[group.beg].morton >> 3; // Parent
+			if( pMorton == ( curTasks[i].morton >> 3 ) )
+			{
+				group.end = i + 1;
+			}
+			else
+			{
+				groups.push_back( group );
+				group.beg = i;
+				group.end = i + 1;
+			}
+		}
+		if( group.beg != -1 )
+		{
+			groups.push_back( group );
+		}
+
+		// build nodes
+		for( int i = 0; i < groups.size(); i++ )
+		{
+			MortonGroup group = groups[i];
+
+			OctreeNode node;
+			node.mask = 0;
+			for( int j = 0; j < 8; j++ )
+			{
+				node.children[j] = -1;
+			}
+
+			// set child
+			// PR_ASSERT( sameParent.size() <= 8 );
+			for( int j = group.beg; j < group.end; j++ )
+			{
+				uint32_t space = curTasks[j].morton & 0x7;
+				node.mask |= ( 1 << space ) & 0xFF;
+				node.children[space] = curTasks[j].child;
+			}
+
+			uint32_t c = nodes->size();
+			nodes->push_back( node );
+
+			OctreeTask nextTask;
+			nextTask.morton = curTasks[group.beg].morton >> 3;
+			nextTask.child = c;
+			nextTasks.push_back( nextTask );
+		}
+
+		curTasks.clear();
+		std::swap( curTasks, nextTasks );
+
+		wide /= 2;
+	}
+}
+#else
 inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t>& mortonVoxels, int wide )
 {
 	nodes->clear();
@@ -120,6 +211,7 @@ inline void buildOctree( std::vector<OctreeNode>* nodes, const std::set<uint64_t
 		wide /= 2;
 	}
 }
+#endif
 
 void octreeTraverse_EfficientParametric(
 	const std::vector<OctreeNode>& nodes, uint32_t nodeIndex,
