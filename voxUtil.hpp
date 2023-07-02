@@ -3,15 +3,19 @@
 #include <vector>
 #include "pr.hpp"
 
-inline void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<glm::vec3>* vertices )
+inline void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<glm::vec3>* vertices, std::vector<glm::vec3>* vcolors )
 {
     using namespace pr;
     vertices->clear();
+	vcolors->clear();
 
     scene->visitPolyMesh( [&]( std::shared_ptr<const FPolyMeshEntity> polymesh ) {
         ColumnView<int32_t> faceCounts( polymesh->faceCounts() );
 	    ColumnView<int32_t> indices( polymesh->faceIndices() );
 	    ColumnView<glm::vec3> positions( polymesh->positions() );
+
+		const AttributeSpreadsheet* spreadsheet = polymesh->attributeSpreadsheet( AttributeSpreadsheetType::Vertices );
+		const AttributeVector4Column* colorAttirb = spreadsheet->columnAsVector4( "Color" );
 
 		glm::mat4 m = polymesh->localToWorld();
 	    for( int i = 0; i < faceCounts.count(); i++ )
@@ -21,6 +25,14 @@ inline void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<g
 		    {
 			    int index = indices[i * 3 + j];
 				vertices->push_back( m * glm::vec4( positions[index], 1.0f ) );
+				if( colorAttirb )
+				{
+					vcolors->push_back( colorAttirb->get( i * 3 + j ) );
+				}
+				else
+				{
+					vcolors->push_back( glm::vec3( 1.0f ) );
+				}
 		    }
 	    }
     } );

@@ -30,8 +30,9 @@ int main()
 	std::string errorMsg;
 	std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
 
-	std::vector<glm::vec3> vertices;
-	trianglesFlattened( scene, &vertices );
+    std::vector<glm::vec3> vertices;
+	std::vector<glm::vec3> vcolors;
+	trianglesFlattened( scene, &vertices, &vcolors );
 
 	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );

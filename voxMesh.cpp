@@ -8,13 +8,18 @@
 
 #include "voxUtil.hpp"
 
-inline void drawVoxelsFace(const std::vector<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps )
+inline void drawVoxelsFace( const std::vector<uint64_t>& mortonVoxels, const std::vector<glm::u8vec4>& colors, const glm::vec3& origin, float dps )
 {
 	using namespace pr;
 
 	TriBegin( 0 );
-	for( auto morton : mortonVoxels )
+	for( int i = 0; i < mortonVoxels.size() ; i++ )
 	{
+		auto morton = mortonVoxels[i];
+		glm::u8vec4 R = !colors.empty() ? colors[i] : glm::u8vec4{ 255, 0, 0, 255 };
+		glm::u8vec4 G = !colors.empty() ? colors[i] : glm::u8vec4{ 0, 255, 0, 255 };
+		glm::u8vec4 B = !colors.empty() ? colors[i] : glm::u8vec4{ 0, 0, 255, 255 };
+
 		glm::uvec3 c;
 		decodeMortonCode_PEXT( morton, &c.x, &c.y, &c.z );
 		glm::vec3 p = origin + glm::vec3( c.x, c.y, c.z ) * dps;
@@ -30,20 +35,20 @@ inline void drawVoxelsFace(const std::vector<uint64_t>& mortonVoxels, const glm:
 		// XZ
 		{
 			uint32_t indices[] = {
-				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
+				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, G ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
 		}
 		{
 			uint32_t indices[] = {
-				TriVertex( { x, y, z }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
-				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, { 0, 255, 0, 255 } ),
+				TriVertex( { x, y, z }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, G ),
+				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, G ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
@@ -52,20 +57,20 @@ inline void drawVoxelsFace(const std::vector<uint64_t>& mortonVoxels, const glm:
 		// YZ
 		{
 			uint32_t indices[] = {
-				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
+				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, R ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
 		}
 		{
 			uint32_t indices[] = {
-				TriVertex( { x, y, z }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
-				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, { 255, 0, 0, 255 } ),
+				TriVertex( { x, y, z }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, R ),
+				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, R ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
@@ -73,20 +78,20 @@ inline void drawVoxelsFace(const std::vector<uint64_t>& mortonVoxels, const glm:
 		// XY
 		{
 			uint32_t indices[] = {
-				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
+				TriVertex( { x, y, z + dps }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x, y + dps, z + dps }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x + dps, y + dps, z + dps }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x + dps, y, z + dps }, { 0.0f, 0.0f }, B ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
 		}
 		{
 			uint32_t indices[] = {
-				TriVertex( { x, y, z }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
-				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, { 0, 0, 255, 255 } ),
+				TriVertex( { x, y, z }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x, y + dps, z }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x + dps, y + dps, z }, { 0.0f, 0.0f }, B ),
+				TriVertex( { x + dps, y, z }, { 0.0f, 0.0f }, B ),
 			};
 			F( 0, 1, 2 );
 			F( 2, 3, 0 );
@@ -125,7 +130,8 @@ int main()
 	// std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
 
     std::vector<glm::vec3> vertices;
-	trianglesFlattened( scene, &vertices );
+	std::vector<glm::vec3> vcolors;
+	trianglesFlattened( scene, &vertices, &vcolors );
 
     glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
@@ -140,6 +146,8 @@ int main()
 	bool drawModel = true;
 	bool drawWire = true;
 	bool drawFace = true;
+
+	bool showVertexColor = true;
 
 	SetDepthTest( true );
 
@@ -178,7 +186,9 @@ int main()
 		}
 
 		static std::vector<uint64_t> mortonVoxels;
+		static std::vector<glm::u8vec4> voxelColors;
 		mortonVoxels.clear();
+		voxelColors.clear();
 
 		Stopwatch sw;
 
@@ -188,9 +198,12 @@ int main()
 
         for( int i = 0; i < vertices.size(); i += 3 )
         {
-			glm::vec3 v0 = vertices[i];
 			glm::vec3 v1 = vertices[i + 1];
 			glm::vec3 v2 = vertices[i + 2];
+			glm::vec3 v0 = vertices[i];
+
+			glm::vec3 color = vcolors[i];
+			glm::u8vec4 voxelColor = { color.x * 255.0f + 0.5f, color.y * 255.0f + 0.5f, color.z * 255.0f + 0.5f, 255 };
 
             VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
 			glm::ivec2 xrange = context.xRangeInclusive();
@@ -207,6 +220,10 @@ int main()
 						{
 							glm::ivec3 c = context.i( x, y, z );
 							mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
+							if( showVertexColor )
+							{
+								voxelColors.push_back( voxelColor );
+							}
 						}
 					}
 				}
@@ -222,7 +239,7 @@ int main()
 		}
 		if( drawFace )
 		{
-			drawVoxelsFace( mortonVoxels, origin, dps );
+			drawVoxelsFace( mortonVoxels, voxelColors, origin, dps );
 		}
 
 		PopGraphicState();
@@ -245,7 +262,8 @@ int main()
 		ImGui::Checkbox( "drawModel", &drawModel );
 		ImGui::Checkbox( "drawWire", &drawWire );
 		ImGui::Checkbox( "drawFace", &drawFace );
-
+		ImGui::Checkbox( "showVertexColor", &showVertexColor );
+		
 		ImGui::SeparatorText( "Save" );
 		if( ImGui::Button( "Save As Mesh" ) )
 		{
