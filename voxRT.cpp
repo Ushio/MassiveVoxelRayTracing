@@ -120,7 +120,6 @@ int main()
 	{
 		DAGBUILD_NO,
 		DAGBUILD_REF,
-		DAGBUILD_APROX,
 	};
 	int dagBuild = DAGBUILD_REF;
 
@@ -241,15 +240,11 @@ int main()
 			sw = Stopwatch();
 			if( dagBuild == DAGBUILD_NO )
 			{
-				octreeVoxel->build( accInputs, origin, dps, gridRes );
+				octreeVoxel->build( std::vector<uint64_t>( accInputs.begin(), accInputs.end() ), origin, dps, gridRes );
 			}
 			else if( dagBuild == DAGBUILD_REF )
 			{
-				octreeVoxel->buildDAGReference( accInputs, origin, dps, gridRes );
-			}
-			else
-			{
-				octreeVoxel->buildDAGApprox( accInputs, origin, dps, gridRes );
+				octreeVoxel->buildDAGReference( std::vector<uint64_t>( accInputs.begin(), accInputs.end() ), origin, dps, gridRes );
 			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
 		}
@@ -380,7 +375,6 @@ int main()
 
 		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
 		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
-		ImGui::RadioButton( "DAG: approximation", &dagBuild, DAGBUILD_APROX );
 		
 		ImGui::End();
 
