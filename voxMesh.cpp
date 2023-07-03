@@ -119,6 +119,7 @@ int main()
 
 	// const char* input = "bunny.obj";
 	const char* input = "bunnyColor.abc";
+	// const char* input = "color.abc";
 	SetDataDir( ExecutableDir() );
 
 	std::string errorMsg;
@@ -198,12 +199,13 @@ int main()
 
         for( int i = 0; i < vertices.size(); i += 3 )
         {
+			glm::vec3 v0 = vertices[i];
 			glm::vec3 v1 = vertices[i + 1];
 			glm::vec3 v2 = vertices[i + 2];
-			glm::vec3 v0 = vertices[i];
 
-			glm::vec3 color = vcolors[i];
-			glm::u8vec4 voxelColor = { color.x * 255.0f + 0.5f, color.y * 255.0f + 0.5f, color.z * 255.0f + 0.5f, 255 };
+			glm::vec3 c0 = vcolors[i];
+			glm::vec3 c1 = vcolors[i + 1];
+			glm::vec3 c2 = vcolors[i + 2];
 
             VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
 			glm::ivec2 xrange = context.xRangeInclusive();
@@ -222,6 +224,9 @@ int main()
 							mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
 							if( showVertexColor )
 							{
+								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
+								glm::vec3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
+								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
 								voxelColors.push_back( voxelColor );
 							}
 						}

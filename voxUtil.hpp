@@ -86,3 +86,40 @@ inline void drawVoxelsWire( const std::vector<uint64_t>& mortonVoxels, const glm
 	}
 	PrimEnd();
 }
+// return { U, V, W }, where U * v1 + V * v2 + W * v0 is the point
+inline glm::vec3 closestBarycentricCoordinateOnTriangle( glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, glm::vec3 P )
+{
+	glm::vec3 d0 = v0 - P;
+	glm::vec3 d1 = v1 - P;
+	glm::vec3 d2 = v2 - P;
+	glm::vec3 e0 = v2 - v0;
+	glm::vec3 e1 = v0 - v1;
+	glm::vec3 e2 = v1 - v2;
+	glm::vec3 Ng = glm::cross( e2, e0 );
+
+	// bc inside the triangle
+	// barycentric coordinate from tetrahedron volumes
+	float U = glm::dot( cross( d2, d0 ), Ng );
+	float V = glm::dot( cross( d0, d1 ), Ng );
+	float W = glm::dot( cross( d1, d2 ), Ng );
+
+	// bc outside the triangle
+	if( U < 0.0f )
+	{
+		V = glm::dot( -d0, e0 );
+		W = glm::dot( d2, e0 );
+	}
+	else if( V < 0.0f )
+	{
+		W = glm::dot( -d1, e1 );
+		U = glm::dot( d0, e1 );
+	}
+	else if( W < 0.0f )
+	{
+		U = glm::dot( -d2, e2 );
+		V = glm::dot( d1, e2 );
+	}
+
+	glm::vec3 bc = glm::max( glm::vec3( 0.0f ), { U, V, W } );
+	return bc / ( bc.x + bc.y + bc.z );
+}
