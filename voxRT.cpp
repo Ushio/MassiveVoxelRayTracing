@@ -12,7 +12,7 @@
 
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {
-	std::map<uint64_t, glm::vec4> voxels;
+	std::map<uint64_t, glm::uvec4> voxels;
 	for (int i = 0; i < keys->size(); i++)
 	{
 		auto key = ( *keys )[i];
@@ -33,6 +33,8 @@ void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values 
 	for( auto kv : voxels )
 	{
 		keys->push_back( kv.first );
+		auto v = glm::u8vec4( kv.second / kv.second.w );
+
 		values->push_back( glm::u8vec4( kv.second / kv.second.w ) );
 	}
 }
@@ -52,10 +54,17 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	const char* input = "bunny.obj";
 	SetDataDir( ExecutableDir() );
+
+	const char* input = "bunnyColor.abc";
+	AbcArchive ar;
 	std::string errorMsg;
-	std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
+	ar.open( GetDataPath( input ), errorMsg );
+	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
+
+	//const char* input = "bunny.obj";
+	//std::string errorMsg;
+	//std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
 
     std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
@@ -73,6 +82,7 @@ int main()
 	int gridRes = 512;
 	bool drawModel = true;
 	bool drawWire = false;
+	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
 	bool renderParallel = false;
 
@@ -228,9 +238,10 @@ int main()
 
 			float t = FLT_MAX;
 			int nMajor;
+			uint32_t vIndex;
 			glm::vec3 ro = from;
 			glm::vec3 rd = to - from;
-			octreeVoxel->intersect( ro, rd, &t, &nMajor );
+			octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
 
 			DrawSphere( ro + rd * t, 0.01f, { 255, 0, 0 } );
 
@@ -255,20 +266,29 @@ int main()
 
 				float t = FLT_MAX;
 				int nMajor;
+				uint32_t vIndex = 0;
 				if( intersector == INTERSECTOR_EMBREE )
 				{
 					embreeVoxel->intersect( ro, rd, &t, &nMajor );
 				}
 				else if( intersector == INTERSECTOR_OCTREE )
 				{
-					octreeVoxel->intersect( ro, rd, &t, &nMajor );
+					octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
 				}
 
 				if( t != FLT_MAX )
 				{
 					glm::vec3 hitN = unProjectPlane( { 0.0f, 0.0f }, project2plane_reminder( rd, nMajor ) < 0.0f ? 1.0f : -1.0f, nMajor );
-					glm::vec3 color = ( hitN + glm::vec3( 1.0f ) ) * 0.5f;
-					image( i, j ) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+
+					if (showVertexColor)
+					{
+						image( i, j ) = voxelColors[vIndex];
+					}
+					else
+					{
+						glm::vec3 color = ( hitN + glm::vec3( 1.0f ) ) * 0.5f;
+						image( i, j ) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+					}
 				}
 				else
 				{
@@ -329,6 +349,7 @@ int main()
 		}
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
+		ImGui::Checkbox( "showVertexColor( DAG Only )", &showVertexColor );
 		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
 		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
 		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );

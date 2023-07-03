@@ -18,11 +18,13 @@ struct OctreeTask
 {
 	uint64_t morton;
 	uint32_t child;
+	uint32_t numberOfVoxels;
 };
 
 struct OctreeNode
 {
 	uint8_t mask;
+	uint32_t numberOfVoxels;
 	uint32_t children[8];
 
 	uint32_t getHash() const
@@ -89,6 +91,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 		OctreeTask task;
 		task.morton = m;
 		task.child = -1;
+		task.numberOfVoxels = 1;
 		curTasks.push_back( task );
 	}
 	std::vector<OctreeTask> nextTasks;
@@ -144,6 +147,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 			{
 				node.children[j] = -1;
 			}
+			node.numberOfVoxels = 0;
 
 			// set child
 			for( int j = group.beg; j < group.end; j++ )
@@ -151,6 +155,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 				uint32_t space = curTasks[j].morton & 0x7;
 				node.mask |= ( 1 << space ) & 0xFF;
 				node.children[space] = curTasks[j].child;
+				node.numberOfVoxels += curTasks[j].numberOfVoxels;
 			}
 
 			uint32_t nodeIndex;
@@ -170,6 +175,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 			OctreeTask nextTask;
 			nextTask.morton = curTasks[group.beg].morton >> 3;
 			nextTask.child = nodeIndex;
+			nextTask.numberOfVoxels = node.numberOfVoxels;
 			nextTasks.push_back( nextTask );
 		}
 
@@ -274,7 +280,7 @@ void octreeTraverse_EfficientParametric(
 	glm::vec3 one_over_rd,
 	const glm::vec3& lower,
 	const glm::vec3& upper,
-	float* t, int* nMajor )
+	float* t, int* nMajor, uint32_t *vIndex )
 {
 	uint32_t vMask = 0;
 	if( one_over_rd.x < 0.0f )
@@ -330,6 +336,7 @@ void octreeTraverse_EfficientParametric(
 		float tz1;
 
 		uint32_t childMask;
+		uint32_t nVoxelSkipped;
 	};
 	auto copyStackElement = []( StackElement& dst, const StackElement& src ) {
 		dst.nodeIndex = src.nodeIndex;
@@ -343,11 +350,12 @@ void octreeTraverse_EfficientParametric(
 		dst.tz1 = src.tz1;
 
 		dst.childMask = src.childMask;
+		dst.nVoxelSkipped = src.nVoxelSkipped;
 	};
 
     StackElement stack[32];
 	int sp = 0;
-	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, S_lmaxTop, t1.x, t1.y, t1.z, 0xFFFFFFFF };
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, S_lmaxTop, t1.x, t1.y, t1.z, 0xFFFFFFFF, 0 };
 	
 	for( ;; )
 	{
@@ -368,6 +376,7 @@ void octreeTraverse_EfficientParametric(
                         ( cur.S_lmax == cur.ty0 ? 2 : 
                             0 );
 
+				*vIndex = cur.nVoxelSkipped;
 				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
 				break;
 			}
@@ -420,6 +429,17 @@ void octreeTraverse_EfficientParametric(
 				cur.tz1 = z1;
 				cur.S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
 				cur.childMask = 0xFFFFFFFF;
+
+				uint32_t nSkipped = 0;
+				for( int i = 0; i < childIndex; i++ )
+				{
+					if( node.mask & (0x1 << i) )
+					{
+						nSkipped += node.children[i] == -1 ? 1 : nodes[node.children[i]].numberOfVoxels;
+					}
+				}
+				cur.nVoxelSkipped += nSkipped;
+
 				goto next;
 			}
 
@@ -596,10 +616,10 @@ public:
 		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
 		buildOctreeDAGReference( &m_nodes, mortonVoxels, gridRes );
 	}
-	void intersect( const glm::vec3& ro, const glm::vec3& rd, float* t, int* nMajor )
+	void intersect( const glm::vec3& ro, const glm::vec3& rd, float* t, int* nMajor, uint32_t *vIndex )
 	{
 		glm::vec3 one_over_rd = glm::vec3( 1.0f ) / rd;
-		octreeTraverse_EfficientParametric( m_nodes, m_nodes.size() - 1, ro, one_over_rd, m_lower, m_upper, t, nMajor );
+		octreeTraverse_EfficientParametric( m_nodes, m_nodes.size() - 1, ro, one_over_rd, m_lower, m_upper, t, nMajor, vIndex );
 	}
 
 	uint64_t getMemoryConsumption()
