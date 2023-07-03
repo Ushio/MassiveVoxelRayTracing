@@ -10,6 +10,33 @@
 
 #include "voxUtil.hpp"
 
+void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
+{
+	std::map<uint64_t, glm::vec4> voxels;
+	for (int i = 0; i < keys->size(); i++)
+	{
+		auto key = ( *keys )[i];
+		auto value = ( *values )[i];
+		auto it = voxels.find( key );
+		if( it == voxels.end() )
+		{
+			voxels[key] = { value.x, value.y, value.z, 1 };
+		}
+		else
+		{
+			it->second += glm::vec4{ value.x, value.y, value.z, 1 };
+		}
+	}
+	keys->clear();
+	values->clear();
+
+	for( auto kv : voxels )
+	{
+		keys->push_back( kv.first );
+		values->push_back( glm::u8vec4( kv.second / kv.second.w ) );
+	}
+}
+
 int main()
 {
 	using namespace pr;
@@ -110,7 +137,7 @@ int main()
 		}
 
 		static std::vector<uint64_t> mortonVoxels;
-
+		static std::vector<glm::u8vec4> voxelColors;
 		Stopwatch sw;
 
 		glm::vec3 origin = bbox_lower;
@@ -120,11 +147,17 @@ int main()
 		if( buildAccelerationStructure )
 		{
 			mortonVoxels.clear();
+			voxelColors.clear();
+
 			for( int i = 0; i < vertices.size(); i += 3 )
 			{
 				glm::vec3 v0 = vertices[i];
 				glm::vec3 v1 = vertices[i + 1];
 				glm::vec3 v2 = vertices[i + 2];
+
+				glm::vec3 c0 = vcolors[i];
+				glm::vec3 c1 = vcolors[i + 1];
+				glm::vec3 c2 = vcolors[i + 2];
 
 				VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
 				glm::ivec2 xrange = context.xRangeInclusive();
@@ -141,6 +174,11 @@ int main()
 							{
 								glm::ivec3 c = context.i( x, y, z );
 								mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
+
+								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
+								glm::vec3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
+								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
+								voxelColors.push_back( voxelColor );
 							}
 						}
 					}
@@ -160,24 +198,19 @@ int main()
 		double embreeBuildMS = 0.0;
 		if( buildAccelerationStructure )
 		{
-			static std::set<uint64_t> accInputs;
-			accInputs.clear();
-			for( auto v : mortonVoxels )
-			{
-				accInputs.insert( v );
-			}
+			mergeVoxels( &mortonVoxels, &voxelColors );
 
 			sw = Stopwatch();
-			embreeVoxel->build( accInputs, origin, dps );
+			embreeVoxel->build( mortonVoxels, origin, dps );
 			embreeBuildMS = sw.elapsed() * 1000.0;
 			sw = Stopwatch();
 			if( dagBuild == DAGBUILD_NO )
 			{
-				octreeVoxel->build( std::vector<uint64_t>( accInputs.begin(), accInputs.end() ), origin, dps, gridRes );
+				octreeVoxel->build( mortonVoxels, origin, dps, gridRes );
 			}
 			else if( dagBuild == DAGBUILD_REF )
 			{
-				octreeVoxel->buildDAGReference( std::vector<uint64_t>( accInputs.begin(), accInputs.end() ), origin, dps, gridRes );
+				octreeVoxel->buildDAGReference( mortonVoxels, origin, dps, gridRes );
 			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
 		}

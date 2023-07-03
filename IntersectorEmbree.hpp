@@ -98,7 +98,7 @@ public:
 		rtcSetDeviceMemoryMonitorFunction( _embreeDevice.get(), memoryMonitor, &_bytes );
 	}
 
-    void build( const std::set<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps )
+    void build( const std::vector<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps )
     {
 		_embreeScene = std::shared_ptr<RTCSceneTy>( rtcNewScene( _embreeDevice.get() ), rtcReleaseScene );
 		rtcSetSceneBuildQuality( _embreeScene.get(), RTC_BUILD_QUALITY_HIGH );
