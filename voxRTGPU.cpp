@@ -1,14 +1,17 @@
 #include "morton.hpp"
 #include "pr.hpp"
-#include "voxelMeshWriter.hpp"
 #include "voxelization.hpp"
-#include "intersectorEmbree.hpp"
 #include "IntersectorOctree.hpp"
 #include <iostream>
 #include <memory>
 #include <set>
 
 #include "voxUtil.hpp"
+#include "Orochi/Orochi.h"
+#include "hipUtil.hpp"
+
+//#include "helper_math.h"
+//#include <cuda_runtime.h>
 
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {
@@ -42,6 +45,46 @@ void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values 
 int main()
 {
 	using namespace pr;
+	SetDataDir( ExecutableDir() );
+
+	if( oroInitialize( (oroApi)( ORO_API_HIP | ORO_API_CUDA ), 0 ) )
+	{
+		printf( "failed to init..\n" );
+		return 0;
+	}
+	int deviceIdx = 2;
+
+	oroError err;
+	err = oroInit( 0 );
+	oroDevice device;
+	err = oroDeviceGet( &device, deviceIdx );
+	oroCtx ctx;
+	err = oroCtxCreate( &ctx, 0, device );
+	oroCtxSetCurrent( ctx );
+
+	oroStream stream = 0;
+	oroStreamCreate( &stream );
+	oroDeviceProp props;
+	oroGetDeviceProperties( &props, device );
+
+	bool isNvidia = oroGetCurAPI( 0 ) & ORO_API_CUDADRIVER;
+
+	printf( "Device: %s\n", props.name );
+	printf( "Cuda: %s\n", isNvidia ? "Yes" : "No" );
+
+	std::vector<char> voxSrc;
+	loadFileAsVector( &voxSrc, GetDataPath( "../voxKernel.cu" ).c_str() );
+	voxSrc.push_back( '\0' );
+
+	std::vector<std::string> compilerArgs;
+	compilerArgs.push_back( "-I" + GetDataPath( "../" ) ); 
+	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
+
+	{
+		ShaderArgument args;
+		voxKernel.launch( "voxelize", args, 1, 1, 1, 32, 1, 1, stream );
+	}
+	oroStreamSynchronize( stream );
 
 	Config config;
 	config.ScreenWidth = 1920;
@@ -53,8 +96,6 @@ int main()
 	camera.origin = { 4, 4, 4 };
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
-
-	SetDataDir( ExecutableDir() );
 
 	const char* input = "bunnyColor.abc";
 	AbcArchive ar;
@@ -92,16 +133,8 @@ int main()
 		DAGBUILD_REF,
 	};
 	int dagBuild = DAGBUILD_REF;
-
-	enum INTERSECTOR
-	{
-		INTERSECTOR_OCTREE,
-		INTERSECTOR_EMBREE,
-	};
 	pr::ITexture* bgTexture = 0;
 	std::shared_ptr<IntersectorOctree> octreeVoxel( new IntersectorOctree() );
-	std::shared_ptr<IntersectorEmbree> embreeVoxel( new IntersectorEmbree() );
-	int intersector = INTERSECTOR_OCTREE;
 
 	SetDepthTest( true );
 
@@ -185,7 +218,7 @@ int main()
 								int3 c = context.i( x, y, z );
 								mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
 
-								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, { p.x, p.y, p.z } );
+								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, { p.x, p.y, p.z} );
 								glm::vec3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
 								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
 								voxelColors.push_back( voxelColor );
@@ -211,9 +244,6 @@ int main()
 			mergeVoxels( &mortonVoxels, &voxelColors );
 
 			sw = Stopwatch();
-			embreeVoxel->build( mortonVoxels, origin, dps );
-			embreeBuildMS = sw.elapsed() * 1000.0;
-			sw = Stopwatch();
 			if( dagBuild == DAGBUILD_NO )
 			{
 				octreeVoxel->build( mortonVoxels, origin, dps, gridRes );
@@ -223,30 +253,6 @@ int main()
 				octreeVoxel->buildDAGReference( mortonVoxels, origin, dps, gridRes );
 			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
-		}
-
-		// A single ray test
-		{
-			static glm::vec3 from = { -3, -3, -3 };
-			static glm::vec3 to = { -0.415414095, 1.55378413, 1.55378413 };
-			ManipulatePosition( camera, &from, 1 );
-			ManipulatePosition( camera, &to, 1 );
-
-			DrawText( from, "from" );
-			DrawText( to, "to" );
-			DrawLine( from, to, { 128, 128, 128 } );
-
-			float t = FLT_MAX;
-			int nMajor;
-			uint32_t vIndex;
-			glm::vec3 ro = from;
-			glm::vec3 rd = to - from;
-			octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
-
-			DrawSphere( ro + rd * t, 0.01f, { 255, 0, 0 } );
-
-			glm::vec3 hitN = getHitN( nMajor, rd );
-			DrawArrow( ro + rd * t, ro + rd * t + hitN * 0.1f, 0.01f, { 255, 0, 0 } );
 		}
 
 		#if 1
@@ -267,14 +273,7 @@ int main()
 				float t = FLT_MAX;
 				int nMajor;
 				uint32_t vIndex = 0;
-				if( intersector == INTERSECTOR_EMBREE )
-				{
-					embreeVoxel->intersect( ro, rd, &t, &nMajor );
-				}
-				else if( intersector == INTERSECTOR_OCTREE )
-				{
-					octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
-				}
+				octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
 
 				if( t != FLT_MAX )
 				{
@@ -354,12 +353,8 @@ int main()
 		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
 		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
 		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
-		ImGui::Text( "embree = %lld byte", embreeVoxel->getMemoryConsumption() );
 		ImGui::Text( "RT (ms) = %f", RT_MS );
 		ImGui::Checkbox( "renderParallel", &renderParallel );
-		ImGui::RadioButton( "Intersector: Octree", &intersector, INTERSECTOR_OCTREE );
-		ImGui::RadioButton( "Intersector: Embree", &intersector, INTERSECTOR_EMBREE );
-
 		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
 		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
 		

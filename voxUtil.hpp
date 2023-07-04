@@ -3,6 +3,20 @@
 #include <vector>
 #include "pr.hpp"
 
+inline glm::vec3 getHitN( int major, glm::vec3 rd )
+{
+	switch (major)
+	{
+	case 0: // z
+		return { 0.0f, 0.0f, 0.0f < rd.z ? -1.0f : 1.0f };
+	case 1: // x
+		return { 0.0f < rd.x ? -1.0f : 1.0f, 0.0f, 0.0f };
+	case 2: // y
+		return { 0.0f, 0.0f < rd.y ? -1.0f : 1.0f, 0.0f };
+	}
+	return { 0.0f, 0.0f, 0.0f };
+}
+
 inline void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<glm::vec3>* vertices, std::vector<glm::vec3>* vcolors )
 {
     using namespace pr;

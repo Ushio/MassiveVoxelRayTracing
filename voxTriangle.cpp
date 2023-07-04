@@ -1,5 +1,7 @@
 #include "pr.hpp"
+
 #include "voxelization.hpp"
+
 #include <iostream>
 #include <memory>
 #include <set>
@@ -63,20 +65,20 @@ int main()
 		ManipulatePosition( camera, &origin, 1 );
 		DrawAABB( origin, origin + glm::vec3( dps, dps, dps ) * (float)gridRes, { 255, 0, 0 } );
 
-		VTContext context( v0, v1, v2, sixSeparating, origin, dps, gridRes );
-		glm::ivec2 xrange = context.xRangeInclusive();
+		VTContext context( { v0.x, v0.y, v0.z }, { v1.x, v1.y, v1.z }, { v2.x, v2.y, v2.z }, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
+		int2 xrange = context.xRangeInclusive();
 		for( int x = xrange.x; x <= xrange.y; x++ )
 		{
-			glm::ivec2 yrange = context.yRangeInclusive( x, dps );
+			int2 yrange = context.yRangeInclusive( x, dps );
 			for( int y = yrange.x; y <= yrange.y; y++ )
 			{
-				glm::ivec2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
+				int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
 				for( int z = zrange.x; z <= zrange.y; z++ )
 				{
-					glm::vec3 p = context.p( x, y, z, dps );
+					float3 p = context.p( x, y, z, dps );
 					if( context.intersect( p ) )
 					{
-						DrawAABB( p, p + glm::vec3( dps, dps, dps ), { 200, 200, 200 } );
+						DrawAABB( { p.x, p.y, p.z }, glm::vec3{ p.x, p.y, p.z } + glm::vec3( dps, dps, dps ), { 200, 200, 200 } );
 					}
 				}
 			}

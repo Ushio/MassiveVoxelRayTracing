@@ -125,6 +125,48 @@ project "voxRT"
         optimize "Full"
     filter{}
 
+project "voxRTGPU"
+    kind "ConsoleApp"
+    language "C++"
+    targetdir "bin/"
+    systemversion "latest"
+    flags { "MultiProcessorCompile", "NoPCH" }
+
+    -- Src
+    files { "voxRTGPU.cpp", "voxelization.hpp", "hipUtil.hpp" }
+
+    -- UTF8
+    postbuildcommands { 
+        "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
+    }
+
+    -- Orochi
+    includedirs { "libs/orochi" }
+    files { "libs/orochi/Orochi/Orochi.h" }
+    files { "libs/orochi/Orochi/Orochi.cpp" }
+    includedirs { "libs/orochi/contrib/hipew/include" }
+    files { "libs/orochi/contrib/hipew/src/hipew.cpp" }
+    includedirs { "libs/orochi/contrib/cuew/include" }
+    files { "libs/orochi/contrib/cuew/src/cuew.cpp" }
+    links { "version" }
+    postbuildcommands { 
+        "{COPYFILE} ../libs/orochi/contrib/bin/win64/*.dll ../bin"
+    }
+
+    includePrLib()
+
+    symbols "On"
+
+    filter {"Debug"}
+        runtime "Debug"
+        targetname ("voxRTGPU_Debug")
+        optimize "Off"
+    filter {"Release"}
+        runtime "Release"
+        targetname ("voxRTGPU")
+        optimize "Full"
+    filter{}
+
 project "unittest"
     kind "ConsoleApp"
     language "C++"
