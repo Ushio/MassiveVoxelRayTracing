@@ -4,3 +4,6 @@
 [submodule "libs/orochi"]
 	path = libs/orochi
 	url = https://github.com/amdadvtech/Orochi.git
+[submodule "libs/tinyhipradixsort"]
+	path = libs/tinyhipradixsort
+	url = https://github.com/Ushio/tinyhipradixsort.git

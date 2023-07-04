@@ -153,6 +153,9 @@ project "voxRTGPU"
         "{COPYFILE} ../libs/orochi/contrib/bin/win64/*.dll ../bin"
     }
 
+    -- RadixSort
+    includedirs { "libs/tinyhipradixsort" }
+
     includePrLib()
 
     symbols "On"

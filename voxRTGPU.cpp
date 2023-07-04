@@ -11,6 +11,8 @@
 #include "Orochi/OrochiUtils.h"
 #include "hipUtil.hpp"
 
+#include "tinyhipradixsort.hpp"
+
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {
 	std::map<uint64_t, glm::uvec4> voxels;
@@ -91,6 +93,10 @@ int main()
 	{
 		compilerArgs.push_back( "-g" );
 	}
+	thrs::RadixSort::Config rConfig;
+	rConfig.keyType = thrs::KeyType::U64;
+	rConfig.valueType = thrs::ValueType::U32;
+	thrs::RadixSort radixsort( compilerArgs, rConfig );
 
 	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
 
@@ -127,6 +133,7 @@ int main()
 
 	std::unique_ptr<Buffer> mortonVoxelsBuffer;
 	std::unique_ptr<Buffer> voxelColorsBuffer;
+	std::unique_ptr<Buffer> tmpBuffer;
 
 	oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), vertices.data(), vertexBuffer.bytes() );
 	oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), vcolors.data(), vcolorBuffer.bytes() );
@@ -254,6 +261,13 @@ int main()
 				args.add( voxelColorsBuffer->data() );
 				voxKernel.launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
 			}
+
+			auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( counter );
+			if (!tmpBuffer || tmpBuffer->bytes() < tmpBufferBytes.getTemporaryBufferBytesForSortPairs())
+			{
+				tmpBuffer = std::unique_ptr<Buffer>( new Buffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() ) );
+			}
+			radixsort.sortPairs( mortonVoxelsBuffer->data(), voxelColorsBuffer->data(), counter, tmpBuffer->data(), 0, 64, stream );
 
 			mortonVoxels.resize( counter );
 			voxelColors.resize( counter );
