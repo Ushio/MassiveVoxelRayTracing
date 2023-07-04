@@ -5,7 +5,7 @@
 #include <set>
 
 #include "morton.hpp"
-
+#include "voxCommon.hpp"
 
 inline uint32_t hash( uint32_t x )
 {
@@ -14,12 +14,7 @@ inline uint32_t hash( uint32_t x )
 	return x;
 }
 
-struct OctreeTask
-{
-	uint64_t morton;
-	uint32_t child;
-	uint32_t numberOfVoxels;
-};
+
 
 struct OctreeNode
 {

@@ -1,8 +1,9 @@
 #pragma once
 
 #if defined( __CUDACC__ ) || defined( __HIPCC__ )
+#ifndef DEVICE
 #define DEVICE __device__
-
+#endif
 DEVICE inline float ss_floor( float value )
 {
 	return floorf( value );
@@ -14,8 +15,10 @@ DEVICE inline float ss_ceil( float value )
 
 #else
 #include <intrin.h>
-#define DEVICE
 
+#ifndef DEVICE
+#define DEVICE
+#endif
 struct alignas(4) uchar4
 {
 	uint8_t x;

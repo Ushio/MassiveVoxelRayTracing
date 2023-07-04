@@ -13,6 +13,8 @@
 
 #include "tinyhipradixsort.hpp"
 
+#include "voxCommon.hpp"
+
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {
 	std::map<uint64_t, glm::uvec4> voxels;
@@ -304,6 +306,25 @@ int main()
 
 				std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
 				std::swap( voxelColorsBuffer, outputVoxelColorsBuffer );
+			}
+
+			std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
+			std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
+
+			{
+				ShaderArgument args;
+				args.add( mortonVoxelsBuffer->data() );
+				args.add( numberOfVoxels );
+				args.add( octreeTasksBuffer0->data() );
+				voxKernel.launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
+			}
+			int wide = gridRes;
+			while( 1 < wide )
+			{
+
+
+
+				wide /= 2;
 			}
 
 			mortonVoxels.resize( numberOfVoxels );

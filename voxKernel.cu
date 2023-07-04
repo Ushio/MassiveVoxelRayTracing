@@ -156,94 +156,149 @@ extern "C" __global__ void countUnique( const uint64_t* mortonVoxels, uint32_t n
 #define UNIQUE_BLOCK_THREADS 64
 #define UNIQUE_NUMBER_OF_ITERATION ( UNIQUE_BLOCK_SIZE / UNIQUE_BLOCK_THREADS )
 
-extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const uchar4* inputVoxelColors, uchar4* outputVoxelColors, uint32_t totalDumpedVoxels )
+template <int BLOCK_SIZE>
+struct StreamCompaction64
 {
-    __shared__ uint32_t gp;
-	__shared__ uint64_t leaderMasks[UNIQUE_NUMBER_OF_ITERATION];
+    enum { 
+        THREADS = 64,
+        NUMBER_OF_STEPS = BLOCK_SIZE / THREADS
+    };
+	uint32_t gp;
+	uint64_t leaderMasks[NUMBER_OF_STEPS];
 
-	clearShared<UNIQUE_NUMBER_OF_ITERATION, UNIQUE_BLOCK_THREADS, uint64_t>( leaderMasks, 0 );
-
-    __syncthreads();
-
-    for( int i = 0; i < UNIQUE_BLOCK_SIZE; i += UNIQUE_BLOCK_THREADS )
+    __device__ void init()
     {
-		uint32_t itemIndex = blockIdx.x * UNIQUE_BLOCK_SIZE + i + threadIdx.x;
-		if( itemIndex < totalDumpedVoxels )
-	    {
-			bool leader = itemIndex == 0 || inputMortonVoxels[itemIndex - 1] != inputMortonVoxels[itemIndex];
-            if( leader )
-            {
-				atomicOr( &leaderMasks[i / UNIQUE_BLOCK_THREADS], 1llu << threadIdx.x );
-            }
-	    }
+		clearShared<NUMBER_OF_STEPS, THREADS, uint64_t>( leaderMasks, 0 );
+		__syncthreads();
+    }
+	__device__ int steps() const { return NUMBER_OF_STEPS; }
+	__device__ uint32_t itemIndex( int step ) const { return blockIdx.x * BLOCK_SIZE + step * THREADS + threadIdx.x; }
+	__device__ void vote( int step )
+    {
+		atomicOr( &leaderMasks[step], 1llu << threadIdx.x );
     }
 
-    __syncthreads();
+    // return global prefix
+    __device__ uint32_t synchronize( uint64_t* iterator )
+    {
+		__syncthreads();
 
-	if( threadIdx.x == 0 )
-	{
-		uint32_t prefix = 0;
-		for( int i = 0; i < UNIQUE_NUMBER_OF_ITERATION; i++ )
+		if( threadIdx.x == 0 )
 		{
-			prefix += __popcll( leaderMasks[i] );
-        }
+			uint32_t prefix = 0;
+			for( int i = 0; i < NUMBER_OF_STEPS; i++ )
+			{
+				prefix += __popcll( leaderMasks[i] );
+			}
 
-		uint64_t expected;
-		uint64_t cur = g_iterator;
-		uint32_t globalPrefix = cur & 0xFFFFFFFF;
-		do
-		{
-			expected = (uint64_t)globalPrefix + ( (uint64_t)( blockIdx.x ) << 32 );
-			uint64_t newValue = (uint64_t)globalPrefix + prefix | ( (uint64_t)( blockIdx.x + 1 ) << 32 );
-			cur = atomicCAS( &g_iterator, expected, newValue );
-			globalPrefix = cur & 0xFFFFFFFF;
+			uint64_t expected;
+			uint64_t cur = *iterator;
+			uint32_t globalPrefix = cur & 0xFFFFFFFF;
+			do
+			{
+				expected = (uint64_t)globalPrefix + ( (uint64_t)( blockIdx.x ) << 32 );
+				uint64_t newValue = (uint64_t)globalPrefix + prefix | ( (uint64_t)( blockIdx.x + 1 ) << 32 );
+				cur = atomicCAS( iterator, expected, newValue );
+				globalPrefix = cur & 0xFFFFFFFF;
 
-		} while( cur != expected );
+			} while( cur != expected );
 
-		gp = globalPrefix;
-	}
+			gp = globalPrefix;
+		}
 
-    __syncthreads();
+		__syncthreads();
 
-    uint32_t globalPrefix = gp;
+		return gp;
+    }
 
-    for( int i = 0; i < UNIQUE_BLOCK_SIZE; i += UNIQUE_BLOCK_THREADS )
+	// return destination. If it is not voted, return -1
+	__device__ uint32_t destination( int step, uint32_t* globalPrefix ) const
+    {
+		uint64_t mask = leaderMasks[step];
+		bool voted = ( mask & ( 1llu << threadIdx.x ) ) != 0;
+		uint64_t lowerMask = ( 1llu << threadIdx.x ) - 1;
+		uint32_t offset = __popcll( mask & lowerMask );
+        uint32_t d = *globalPrefix + offset;
+		*globalPrefix += __popcll( mask );
+		return voted ? d : -1;
+    }
+};
+
+extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const uchar4* inputVoxelColors, uchar4* outputVoxelColors, uint32_t totalDumpedVoxels )
+{
+	__shared__ StreamCompaction64<UNIQUE_BLOCK_SIZE> streamCompaction;
+	streamCompaction.init();
+
+	for (int i = 0; i < streamCompaction.steps(); i++)
 	{
-		uint32_t itemIndex = blockIdx.x * UNIQUE_BLOCK_SIZE + i + threadIdx.x;
+		uint32_t itemIndex = streamCompaction.itemIndex( i );
 		if( itemIndex < totalDumpedVoxels )
 		{
-			uint64_t mask = leaderMasks[i / UNIQUE_BLOCK_THREADS];
-			bool leader = ( mask & ( 1llu << threadIdx.x ) ) != 0;
-			uint64_t lowerMask = ( 1llu << threadIdx.x ) - 1;
-			uint32_t offset = __popcll( mask & lowerMask );
+			bool leader = itemIndex == 0 || inputMortonVoxels[itemIndex - 1] != inputMortonVoxels[itemIndex];
+			if( leader )
+			{
+				streamCompaction.vote( i );
+			}
+		}
+	}
 
-            if( leader )
-            {
+	uint32_t globalPrefix = streamCompaction.synchronize( &g_iterator );
+
+	for( int i = 0; i < streamCompaction.steps(); i++ )
+	{
+		uint32_t itemIndex = streamCompaction.itemIndex( i );
+		if( itemIndex < totalDumpedVoxels )
+		{
+			uint32_t d = streamCompaction.destination( i, &globalPrefix );
+			if( d != -1 ) // voted
+			{
 				uint64_t morton = inputMortonVoxels[itemIndex];
-				outputMortonVoxels[globalPrefix + offset] = morton;
-			    
-                int R = 0;
+				outputMortonVoxels[d] = morton;
+
+				int R = 0;
 				int G = 0;
 				int B = 0;
 				int n = 0;
-                for( int j = itemIndex; j < totalDumpedVoxels && inputMortonVoxels[j] == morton ; j++ )
-                {
+				for( int j = itemIndex; j < totalDumpedVoxels && inputMortonVoxels[j] == morton; j++ )
+				{
 					R += inputVoxelColors[j].x;
 					G += inputVoxelColors[j].y;
 					B += inputVoxelColors[j].z;
 					n++;
-                }
+				}
 				uchar4 meanColor = {
 					(uint8_t)( R / n ),
 					(uint8_t)( G / n ),
 					(uint8_t)( B / n ),
-                    255
-				};
+					255 };
 
-				outputVoxelColors[globalPrefix + offset] = meanColor;
-            }
-
-            globalPrefix += __popcll( mask );
+				outputVoxelColors[d] = meanColor;
+			}
 		}
 	}
 }
+
+
+__device__ uint64_t g_octreeIterator0;
+__device__ uint64_t g_octreeIterator1;
+
+extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks )
+{
+	uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if( i < numberOfVoxels )
+    {
+		outputOctreeTasks[i].morton = inputMortonVoxels[i];
+		outputOctreeTasks[i].child = -1;
+		outputOctreeTasks[i].numberOfVoxels = 1;
+    }
+
+    if( i == 0 )
+    {
+		g_octreeIterator0 = 0;
+    }
+}
+//
+//extern "C" __global__ void octreeElementInit(const OctreeTask * inputOctreeTasks, uint32_t nInput, OctreeTask * outputOctreeTasks)
+//{
+//
+//}
