@@ -133,7 +133,6 @@ int main()
 
 	std::unique_ptr<Buffer> mortonVoxelsBuffer;
 	std::unique_ptr<Buffer> voxelColorsBuffer;
-	std::unique_ptr<Buffer> tmpBuffer;
 
 	oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), vertices.data(), vertexBuffer.bytes() );
 	oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), vcolors.data(), vcolorBuffer.bytes() );
@@ -231,18 +230,17 @@ int main()
 				args.add( (uint32_t)gridRes );
 				voxKernel.launch( "voxCount", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
 			}
-			// oroStream.stop();
-			// float voxCountms = oroStream.getMs();
 
-			uint32_t counter = 0;
-			oroMemcpyDtoHAsync( &counter, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+
+			uint32_t totalDumpedVoxels = 0;
+			oroMemcpyDtoHAsync( &totalDumpedVoxels, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 			oroStreamSynchronize( stream );
 
-			uint64_t mortonVoxelsBytes = sizeof( uint64_t ) * counter;
+			uint64_t mortonVoxelsBytes = sizeof( uint64_t ) * totalDumpedVoxels;
 			if( !mortonVoxelsBuffer || mortonVoxelsBuffer->bytes() < mortonVoxelsBytes )
 			{
 				mortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( mortonVoxelsBytes ) );
-				voxelColorsBuffer  = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * counter ) );
+				voxelColorsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * totalDumpedVoxels ) );
 			}
 
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
@@ -262,17 +260,56 @@ int main()
 				voxKernel.launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
 			}
 
-			auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( counter );
-			if (!tmpBuffer || tmpBuffer->bytes() < tmpBufferBytes.getTemporaryBufferBytesForSortPairs())
 			{
-				tmpBuffer = std::unique_ptr<Buffer>( new Buffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() ) );
+				auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( totalDumpedVoxels );
+				Buffer tmpBuffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() );
+				radixsort.sortPairs( mortonVoxelsBuffer->data(), voxelColorsBuffer->data(), totalDumpedVoxels, tmpBuffer.data(), 0, 64, stream );
+				oroStreamSynchronize( stream );
 			}
-			radixsort.sortPairs( mortonVoxelsBuffer->data(), voxelColorsBuffer->data(), counter, tmpBuffer->data(), 0, 64, stream );
 
-			mortonVoxels.resize( counter );
-			voxelColors.resize( counter );
-			oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * counter, stream );
-			oroMemcpyDtoHAsync( voxelColors.data(), (oroDeviceptr)voxelColorsBuffer->data(), sizeof( glm::u8vec4 ) * counter, stream );
+			//oroStream.stop();
+			//float voxelMs = oroStream.getMs();
+			//printf( "voxelMs %f \n", voxelMs );
+
+			// Compaction
+			uint32_t numberOfVoxels = 0;
+			{
+				oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+				ShaderArgument args;
+				args.add( mortonVoxelsBuffer->data() );
+				args.add( totalDumpedVoxels );
+				args.add( counterBuffer.data() );
+				voxKernel.launch( "countUnique", args, div_round_up64( totalDumpedVoxels, 128 ), 1, 1, 128, 1, 1, stream );
+				
+				oroMemcpyDtoHAsync( &numberOfVoxels, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+				oroStreamSynchronize( stream );
+			}
+
+#define UNIQUE_BLOCK_SIZE 2048
+#define UNIQUE_BLOCK_THREADS 64
+			{
+				auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * numberOfVoxels ) );
+				auto outputVoxelColorsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * numberOfVoxels ) );
+
+				oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+				ShaderArgument args;
+				args.add( mortonVoxelsBuffer->data() );
+				args.add( outputMortonVoxelsBuffer->data() );
+				args.add( voxelColorsBuffer->data() );
+				args.add( outputVoxelColorsBuffer->data() );
+				args.add( totalDumpedVoxels );
+				voxKernel.launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
+
+				oroStreamSynchronize( stream );
+
+				std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
+				std::swap( voxelColorsBuffer, outputVoxelColorsBuffer );
+			}
+
+			mortonVoxels.resize( numberOfVoxels );
+			voxelColors.resize( numberOfVoxels );
+			oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * numberOfVoxels, stream );
+			oroMemcpyDtoHAsync( voxelColors.data(), (oroDeviceptr)voxelColorsBuffer->data(), sizeof( glm::u8vec4 ) * numberOfVoxels, stream );
 
 			oroStreamSynchronize( stream );
 
@@ -290,7 +327,9 @@ int main()
 		double embreeBuildMS = 0.0;
 		if( buildAccelerationStructure )
 		{
-			mergeVoxels( &mortonVoxels, &voxelColors );
+			//printf( "before %d\n", mortonVoxels.size() );
+			// mergeVoxels( &mortonVoxels, &voxelColors );
+			//printf( "after %d\n", mortonVoxels.size() );
 
 			sw = Stopwatch();
 			if( dagBuild == DAGBUILD_NO )
