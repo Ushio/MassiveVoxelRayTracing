@@ -8,10 +8,8 @@
 
 #include "voxUtil.hpp"
 #include "Orochi/Orochi.h"
+#include "Orochi/OrochiUtils.h"
 #include "hipUtil.hpp"
-
-//#include "helper_math.h"
-//#include <cuda_runtime.h>
 
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {
@@ -41,7 +39,10 @@ void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values 
 		values->push_back( glm::u8vec4( kv.second / kv.second.w ) );
 	}
 }
-
+inline float3 toFloat3( glm::vec3 v )
+{
+	return { v.x, v.y, v.z };
+}
 int main()
 {
 	using namespace pr;
@@ -78,13 +79,20 @@ int main()
 
 	std::vector<std::string> compilerArgs;
 	compilerArgs.push_back( "-I" + GetDataPath( "../" ) ); 
-	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
 
+	if( isNvidia )
 	{
-		ShaderArgument args;
-		voxKernel.launch( "voxelize", args, 1, 1, 1, 32, 1, 1, stream );
+		compilerArgs.push_back( "--generate-line-info" );
+
+		// ITS enabled
+		compilerArgs.push_back( "--gpu-architecture=compute_70" );
 	}
-	oroStreamSynchronize( stream );
+	else
+	{
+		compilerArgs.push_back( "-g" );
+	}
+
+	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
 
 	Config config;
 	config.ScreenWidth = 1920;
@@ -110,6 +118,18 @@ int main()
     std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
 	trianglesFlattened( scene, &vertices, &vcolors );
+
+	// GPU buffer
+	static_assert( sizeof( glm::vec3 ) == sizeof( float3 ), "" );
+	Buffer vertexBuffer( sizeof( float3 ) * vertices.size() );
+	Buffer vcolorBuffer( sizeof( float3 ) * vcolors.size() );
+	Buffer counterBuffer( sizeof( uint32_t ) );
+
+	std::unique_ptr<Buffer> mortonVoxelsBuffer;
+	std::unique_ptr<Buffer> voxelColorsBuffer;
+
+	oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), vertices.data(), vertexBuffer.bytes() );
+	oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), vcolors.data(), vcolorBuffer.bytes() );
 
 	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
@@ -189,46 +209,61 @@ int main()
 
 		if( buildAccelerationStructure )
 		{
-			mortonVoxels.clear();
-			voxelColors.clear();
-
-			for( int i = 0; i < vertices.size(); i += 3 )
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+			//OroStopwatch oroStream( stream );
+			//oroStream.start();
 			{
-				glm::vec3 v0 = vertices[i];
-				glm::vec3 v1 = vertices[i + 1];
-				glm::vec3 v2 = vertices[i + 2];
-
-				glm::vec3 c0 = vcolors[i];
-				glm::vec3 c1 = vcolors[i + 1];
-				glm::vec3 c2 = vcolors[i + 2];
-
-				VTContext context( { v0.x, v0.y, v0.z }, { v1.x, v1.y, v1.z }, { v2.x, v2.y, v2.z }, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
-				int2 xrange = context.xRangeInclusive();
-				for( int x = xrange.x; x <= xrange.y; x++ )
-				{
-					int2 yrange = context.yRangeInclusive( x, dps );
-					for( int y = yrange.x; y <= yrange.y; y++ )
-					{
-						int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
-						for( int z = zrange.x; z <= zrange.y; z++ )
-						{
-							float3 p = context.p( x, y, z, dps );
-							if( context.intersect( p ) )
-							{
-								int3 c = context.i( x, y, z );
-								mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
-
-								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, { p.x, p.y, p.z} );
-								glm::vec3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
-								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
-								voxelColors.push_back( voxelColor );
-							}
-						}
-					}
-				}
+				uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
+				ShaderArgument args;
+				args.add( vertexBuffer.data() );
+				args.add( vcolorBuffer.data() );
+				args.add( nTriangles );
+				args.add( counterBuffer.data() );
+				args.add( origin );
+				args.add( dps );
+				args.add( (uint32_t)gridRes );
+				voxKernel.launch( "voxCount", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
 			}
-		}
+			// oroStream.stop();
+			// float voxCountms = oroStream.getMs();
 
+			uint32_t counter = 0;
+			oroMemcpyDtoHAsync( &counter, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+			oroStreamSynchronize( stream );
+
+			uint64_t mortonVoxelsBytes = sizeof( uint64_t ) * counter;
+			if( !mortonVoxelsBuffer || mortonVoxelsBuffer->bytes() < mortonVoxelsBytes )
+			{
+				mortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( mortonVoxelsBytes ) );
+				voxelColorsBuffer  = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * counter ) );
+			}
+
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+
+			{
+				uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
+				ShaderArgument args;
+				args.add( vertexBuffer.data() );
+				args.add( vcolorBuffer.data() );
+				args.add( nTriangles );
+				args.add( counterBuffer.data() );
+				args.add( origin );
+				args.add( dps );
+				args.add( (uint32_t)gridRes );
+				args.add( mortonVoxelsBuffer->data() );
+				args.add( voxelColorsBuffer->data() );
+				voxKernel.launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
+			}
+
+			mortonVoxels.resize( counter );
+			voxelColors.resize( counter );
+			oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * counter, stream );
+			oroMemcpyDtoHAsync( voxelColors.data(), (oroDeviceptr)voxelColorsBuffer->data(), sizeof( glm::u8vec4 ) * counter, stream );
+
+			oroStreamSynchronize( stream );
+
+			// printf( "%d %d %f ms\n", counter, (int)mortonVoxels.size(), voxCountms );
+		}
 		double voxelizationTime = sw.elapsed();
 
 		// mortonVoxels has some duplications but I don't care now.

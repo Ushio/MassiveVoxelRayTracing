@@ -39,6 +39,11 @@ void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values 
 	}
 }
 
+inline float3 toFloat3( glm::vec3 v )
+{
+	return { v.x, v.y, v.z };
+}
+
 int main()
 {
 	using namespace pr;
@@ -161,13 +166,13 @@ int main()
 
 			for( int i = 0; i < vertices.size(); i += 3 )
 			{
-				glm::vec3 v0 = vertices[i];
-				glm::vec3 v1 = vertices[i + 1];
-				glm::vec3 v2 = vertices[i + 2];
+				float3 v0 = toFloat3( vertices[i] );
+				float3 v1 = toFloat3( vertices[i + 1] );
+				float3 v2 = toFloat3( vertices[i + 2] );
 
-				glm::vec3 c0 = vcolors[i];
-				glm::vec3 c1 = vcolors[i + 1];
-				glm::vec3 c2 = vcolors[i + 2];
+				float3 c0 = toFloat3( vcolors[i] );
+				float3 c1 = toFloat3( vcolors[i + 1] );
+				float3 c2 = toFloat3( vcolors[i + 2] );
 
 				VTContext context( { v0.x, v0.y, v0.z }, { v1.x, v1.y, v1.z }, { v2.x, v2.y, v2.z }, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
 				int2 xrange = context.xRangeInclusive();
@@ -185,8 +190,8 @@ int main()
 								int3 c = context.i( x, y, z );
 								mortonVoxels.push_back( encode2mortonCode_PDEP( c.x, c.y, c.z ) );
 
-								glm::vec3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, { p.x, p.y, p.z } );
-								glm::vec3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
+								float3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
+								float3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
 								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
 								voxelColors.push_back( voxelColor );
 							}

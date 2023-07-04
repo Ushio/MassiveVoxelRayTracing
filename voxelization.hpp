@@ -83,9 +83,9 @@ DEVICE inline int project2plane_reminder( int3 p, int axis )
 
 DEVICE inline int majorAxis( float3 d )
 {
-    float x = glm::abs(d.x);
-    float y = glm::abs(d.y);
-    float z = glm::abs(d.z);
+    float x = ss_abs(d.x);
+    float y = ss_abs(d.y);
+    float z = ss_abs(d.z);
     if (x < y)
     {
         return y < z ? 0 : 2;
@@ -231,8 +231,8 @@ struct VTContext
     {
         float xcoord = origin_xy.x + x * dps;
 
-        float miny = -FLT_MAX; // valid int cast min
-        float maxy = FLT_MAX;  // valid int cast max
+        float miny = -3.402823466e+38F;
+		float maxy = 3.402823466e+38F;
         for (int edge = 0; edge < 3; edge++)
         {
             float nex = nesx[major][edge];

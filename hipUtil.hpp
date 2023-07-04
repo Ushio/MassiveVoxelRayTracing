@@ -4,6 +4,17 @@
 #include <vector>
 #include "Orochi/Orochi.h"
 #include <intrin.h>
+
+inline uint64_t div_round_up64( uint64_t val, uint64_t divisor )
+{
+	return ( val + divisor - 1 ) / divisor;
+}
+inline uint64_t next_multiple64( uint64_t val, uint64_t divisor )
+{
+	return div_round_up64( val, divisor ) * divisor;
+}
+
+
 #define HIPUTIL_ASSERT( ExpectTrue ) \
 	if( ( ExpectTrue ) == 0 )     \
 	{                             \
@@ -57,7 +68,6 @@ public:
     {
         return (char*)m_ptr;
     }
-
 private:
     int64_t m_bytes;
     oroDeviceptr m_ptr;
