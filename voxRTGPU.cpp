@@ -381,7 +381,11 @@ int main()
 		CameraPinhole pinhole;
 		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
 
+		double renderMS = 0;
 		{
+			OroStopwatch oroStream( stream );
+			oroStream.start();
+
 			int nBlock = 16 * 256;
 			int nThreads = 256;
 
@@ -414,6 +418,9 @@ int main()
 			
 			voxKernel.launch( "render", args, nBlock, 1, 1, nThreads, 1, 1, stream );
 			
+			oroStream.stop();
+			renderMS = oroStream.getMs();
+
 			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBuffer->data(), frameBuffer->bytes(), stream );
 			oroStreamSynchronize( stream );
 		}
@@ -459,6 +466,7 @@ int main()
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
 		ImGui::Checkbox( "showVertexColor", &showVertexColor );
 		ImGui::Text( "build(ms) = %f", buildMS );
+		ImGui::Text( "render(ms) = %f", renderMS );
 		ImGui::Text( "octree   = %lld byte", numberOfNode * sizeof( OctreeNode ) );
 		
 		ImGui::End();
