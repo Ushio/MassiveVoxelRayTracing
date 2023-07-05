@@ -44,6 +44,7 @@ inline float3 toFloat3( glm::vec3 v )
 	return { v.x, v.y, v.z };
 }
 
+
 int main()
 {
 	using namespace pr;
@@ -246,7 +247,7 @@ int main()
 			uint32_t vIndex;
 			glm::vec3 ro = from;
 			glm::vec3 rd = to - from;
-			octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
+			octreeVoxel->intersect( { ro.x, ro.y, ro.z }, { rd.x, rd.y, rd.z }, &t, &nMajor, &vIndex );
 
 			DrawSphere( ro + rd * t, 0.01f, { 255, 0, 0 } );
 
@@ -258,16 +259,18 @@ int main()
 		Image2DRGBA8 image;
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
 
-		CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
+		CameraPinhole pinhole;
+		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
+
+		//CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
 
 		sw = Stopwatch();
 
 		auto renderLine = [&]( int j ) {
 			for( int i = 0; i < image.width(); ++i )
 			{
-				glm::vec3 ro, rd;
-				rayGenerator.shoot( &ro, &rd, i, j, 0.5f, 0.5f );
-				glm::vec3 one_over_rd = glm::vec3( 1.0f ) / rd;
+				float3 ro, rd;
+				pinhole.shoot( &ro, &rd, i, j, 0.5f, 0.5f, image.width(), image.height() );
 
 				float t = FLT_MAX;
 				int nMajor;
@@ -283,7 +286,7 @@ int main()
 
 				if( t != FLT_MAX )
 				{
-					glm::vec3 hitN = getHitN( nMajor, rd );
+					float3 hitN = getHitN( nMajor, rd );
 
 					if (showVertexColor)
 					{
@@ -291,8 +294,8 @@ int main()
 					}
 					else
 					{
-						glm::vec3 color = ( hitN + glm::vec3( 1.0f ) ) * 0.5f;
-						image( i, j ) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
+						float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
+						image( i, j ) = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
 					}
 				}
 				else
@@ -319,6 +322,8 @@ int main()
 			bgTexture = CreateTexture();
 		}
 		bgTexture->upload( image );
+#else
+		double RT_MS = 0;
 #endif
 
 		PopGraphicState();

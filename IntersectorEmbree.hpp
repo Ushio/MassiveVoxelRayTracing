@@ -129,7 +129,7 @@ public:
 
 		rtcCommitScene( _embreeScene.get() );
     }
-	void intersect( glm::vec3 ro, glm::vec3 rd, float* t, int* nMajor )
+	void intersect( float3 ro, float3 rd, float* t, int* nMajor )
     {
 		RTCRayHit rayHit = {};
 		rayHit.ray.org_x = ro.x;

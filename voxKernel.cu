@@ -433,3 +433,51 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			g_octreeIterator0 = 0;
 	}
 }
+
+extern "C" __global__ void render( 
+	uchar4* frameBuffer, int2 resolution, 
+	uint32_t* taskCounter, StackElement* stackBuffer,
+	CameraPinhole pinhole,
+	const OctreeNode* nodes, uint32_t nodeIndex, const uchar4* voxelColors,
+	float3 lower, float3 upper )
+{
+	__shared__ uint32_t taskIdx;
+
+	StackElement* stack = stackBuffer + blockIdx.x * 32 * blockDim.x + threadIdx.x * 32;
+
+	for (;; )
+	{
+		if( threadIdx.x == 0 )
+		{
+			taskIdx = atomicInc( taskCounter, 0xFFFFFFFF );
+		}
+		__syncthreads();
+
+		uint32_t pixelIdx = taskIdx * blockDim.x + threadIdx.x;
+		if( resolution.x * resolution.y <= pixelIdx )
+		{
+			break;
+		}
+
+		uint32_t x = pixelIdx % resolution.x;
+		uint32_t y = pixelIdx / resolution.x;
+
+		float3 ro, rd;
+		pinhole.shoot( &ro, &rd, x, y, 0.5f, 0.5f, resolution.x, resolution.y );
+
+		float t = MAX_FLOAT;
+		int nMajor;
+		uint32_t vIndex = 0;
+		octreeTraverse_EfficientParametric( nodes, nodeIndex, stack, ro, rd, lower, upper, &t, &nMajor, &vIndex );
+
+		uchar4 colorOut = { 0, 0, 0, 255 };
+		if( t != MAX_FLOAT )
+		{
+			//float3 hitN = getHitN( nMajor, rd );
+			//float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
+			//colorOut = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
+			colorOut = voxelColors[vIndex];
+		}
+		frameBuffer[y * resolution.x + x] = colorOut;
+	}
+}

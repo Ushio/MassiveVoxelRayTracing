@@ -65,6 +65,8 @@ inline float ss_ceil( float value )
 
 #endif
 
+#define MAX_FLOAT 3.402823466e+38F
+
 template <class T>
 DEVICE inline T ss_max( T x, T y )
 {
@@ -126,10 +128,18 @@ DEVICE inline float3 operator*( float a, float3 b )
 {
 	return { a * b.x, a * b.y, a * b.z };
 }
+DEVICE inline float3 operator*( float3 a, float3 b )
+{
+	return { a.x * b.x, a.y * b.y, a.z * b.z };
+}
 
 DEVICE inline float3 operator/( float3 a, float b )
 {
 	return { a.x / b, a.y / b, a.z / b };
+}
+DEVICE inline float3 operator/( float3 a, float3 b )
+{
+	return { a.x / b.x, a.y / b.y, a.z / b.z };
 }
 
 DEVICE inline float3 fmaxf( float3 a, float3 b )
@@ -158,6 +168,22 @@ DEVICE inline float3 floorf( float3 v )
 DEVICE inline float3 cross( float3 a, float3 b )
 {
 	return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x };
+}
+DEVICE inline float3 fabs( float3 v )
+{
+	return { ss_abs( v.x ), ss_abs( v.y ), ss_abs( v.z ) };
+}
+DEVICE inline float maxElement( float a, float b, float c )
+{
+	return ss_max( ss_max( a, b ), c );
+}
+DEVICE inline float minElement( float a, float b, float c )
+{
+	return ss_min( ss_min( a, b ), c );
+}
+DEVICE inline float mix( float a, float b, float t )
+{
+	return a + ( b - a ) * t;
 }
 
 DEVICE inline float3 closestBarycentricCoordinateOnTriangle( float3 v0, float3 v1, float3 v2, float3 P )

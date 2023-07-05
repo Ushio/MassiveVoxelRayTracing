@@ -139,6 +139,12 @@ int main()
 	oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), vertices.data(), vertexBuffer.bytes() );
 	oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), vcolors.data(), vcolorBuffer.bytes() );
 
+	int numberOfNode = 0;
+	std::unique_ptr<Buffer> nodeBuffer;
+
+	std::unique_ptr<Buffer> stackBuffer;
+	std::unique_ptr<Buffer> frameBuffer;
+
 	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
 	for( int i = 0; i < vertices.size(); i++ )
@@ -150,7 +156,6 @@ int main()
 	bool sixSeparating = true;
 	int gridRes = 512;
 	bool drawModel = true;
-	bool drawWire = false;
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
 	bool renderParallel = false;
@@ -215,11 +220,13 @@ int main()
 		glm::vec3 bbox_size = bbox_upper - bbox_lower;
 		float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
 
+		double buildMS = 0.0;
 		if( buildAccelerationStructure )
 		{
+			OroStopwatch oroStream( stream );
+			oroStream.start();
+
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-			//OroStopwatch oroStream( stream );
-			//oroStream.start();
 			{
 				uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
 				ShaderArgument args;
@@ -268,10 +275,6 @@ int main()
 				radixsort.sortPairs( mortonVoxelsBuffer->data(), voxelColorsBuffer->data(), totalDumpedVoxels, tmpBuffer.data(), 0, 64, stream );
 				oroStreamSynchronize( stream );
 			}
-
-			//oroStream.stop();
-			//float voxelMs = oroStream.getMs();
-			//printf( "voxelMs %f \n", voxelMs );
 
 			// Compaction
 			uint32_t numberOfVoxels = 0;
@@ -329,8 +332,8 @@ int main()
 			int lpSize = nodeCapacity;
 			std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
 
-			int numberOfNode = 0;
-			std::unique_ptr<Buffer> nodeBuffer( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
+			
+			nodeBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
 
 			int wide = gridRes;
 			int iteration = 0;
@@ -390,96 +393,60 @@ int main()
 			//oroStreamSynchronize( stream );
 
 			// printf( "%d %d %f ms\n", counter, (int)mortonVoxels.size(), voxCountms );
+
+			oroStream.stop();
+			buildMS = oroStream.getMs();
 		}
-		double voxelizationTime = sw.elapsed();
+		
 
-		// mortonVoxels has some duplications but I don't care now.
-		if( drawWire )
-		{
-			drawVoxelsWire( mortonVoxels, origin, dps, { 200, 200, 200 } );
-		}
-
-		double octreeBuildMS = 0.0;
-		double embreeBuildMS = 0.0;
-		#if 0
-		if( buildAccelerationStructure )
-		{
-			//printf( "before %d\n", mortonVoxels.size() );
-			// mergeVoxels( &mortonVoxels, &voxelColors );
-			//printf( "after %d\n", mortonVoxels.size() );
-
-			sw = Stopwatch();
-			if( dagBuild == DAGBUILD_NO )
-			{
-				octreeVoxel->build( mortonVoxels, origin, dps, gridRes );
-			}
-			else if( dagBuild == DAGBUILD_REF )
-			{
-				octreeVoxel->buildDAGReference( mortonVoxels, origin, dps, gridRes );
-			}
-			octreeBuildMS = sw.elapsed() * 1000.0;
-		}
-		#endif
-
-		#if 1
 		Image2DRGBA8 image;
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
 
-		CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
+		CameraPinhole pinhole;
+		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
 
-		sw = Stopwatch();
-
-		auto renderLine = [&]( int j ) {
-			for( int i = 0; i < image.width(); ++i )
-			{
-				glm::vec3 ro, rd;
-				rayGenerator.shoot( &ro, &rd, i, j, 0.5f, 0.5f );
-				glm::vec3 one_over_rd = glm::vec3( 1.0f ) / rd;
-
-				float t = FLT_MAX;
-				int nMajor;
-				uint32_t vIndex = 0;
-				octreeVoxel->intersect( ro, rd, &t, &nMajor, &vIndex );
-
-				if( t != FLT_MAX )
-				{
-					glm::vec3 hitN = getHitN( nMajor, rd );
-
-					if (showVertexColor)
-					{
-						image( i, j ) = voxelColors[vIndex];
-					}
-					else
-					{
-						glm::vec3 color = ( hitN + glm::vec3( 1.0f ) ) * 0.5f;
-						image( i, j ) = { 255 * color.r, 255 * color.g, 255 * color.b, 255 };
-					}
-				}
-				else
-				{
-					image( i, j ) = { 0, 0, 0, 255 };
-				}
-			}
-		};
-		if( renderParallel )
 		{
-			ParallelFor( image.height(), renderLine );
-		}
-		else
-		{
-			for( int j = 0; j < image.height(); ++j )
+			int nBlock = 16 * 256;
+			int nThreads = 256;
+
+			auto frameBufferBytes = image.width() * image.height() * sizeof( uchar4 );
+			if( !frameBuffer || frameBuffer->bytes() != frameBufferBytes )
 			{
-				renderLine( j );
+				frameBuffer = std::unique_ptr<Buffer>( new Buffer( frameBufferBytes ) );
 			}
+			if( !stackBuffer )
+			{
+				stackBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( StackElement ) * 32 * nThreads * nBlock ) );
+			}
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+
+			float3 lower = { origin.x, origin.y, origin.z };
+			float3 upper = float3{ origin.x, origin.y, origin.z } + float3{ dps, dps, dps } * (float)gridRes;
+
+			ShaderArgument args;
+			args.add( frameBuffer->data() );
+			args.add<int2>( { image.width(), image.height() } );
+			args.add( counterBuffer.data() );
+			args.add( stackBuffer->data() );
+			args.add( pinhole );
+			args.add( nodeBuffer->data() );
+			args.add( numberOfNode - 1 );
+			args.add( voxelColorsBuffer->data() );
+			args.add( lower );
+			args.add( upper );
+			
+			voxKernel.launch( "render", args, nBlock, 1, 1, nThreads, 1, 1, stream );
+			
+			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBuffer->data(), frameBuffer->bytes(), stream );
+			oroStreamSynchronize( stream );
 		}
-		double RT_MS = sw.elapsed();
 
 		if( bgTexture == nullptr )
 		{
 			bgTexture = CreateTexture();
 		}
 		bgTexture->upload( image );
-#endif
+
 
 		PopGraphicState();
 		EndCamera();
@@ -504,22 +471,19 @@ int main()
 		
 		ImGui::SeparatorText( "Drawing" );
 		ImGui::Checkbox( "drawModel", &drawModel );
-		ImGui::Checkbox( "drawWire", &drawWire );
 
 		ImGui::SeparatorText( "Acceleration" );
 
-		if( 1000.0 < octreeBuildMS )
+		if( 1000.0 < buildMS )
 		{
 			buildAccelerationStructure = false;
 		}
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
 		ImGui::Checkbox( "showVertexColor( DAG Only )", &showVertexColor );
-		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
-		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
-		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
+		ImGui::Text( "build(ms) = %f", buildMS );
 		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
-		ImGui::Text( "RT (ms) = %f", RT_MS );
+		//ImGui::Text( "RT (ms) = %f", RT_MS );
 		ImGui::Checkbox( "renderParallel", &renderParallel );
 		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
 		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
