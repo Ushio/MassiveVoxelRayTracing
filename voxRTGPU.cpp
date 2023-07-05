@@ -306,30 +306,23 @@ int main()
 			std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 			std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 
-			int nodeCapacity = 0;
+			
 			{
-				oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-
 				ShaderArgument args;
 				args.add( mortonVoxelsBuffer->data() );
 				args.add( numberOfVoxels );
 				args.add( octreeTasksBuffer0->data() );
-				args.add( counterBuffer.data() );
 				voxKernel.launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
-
-				oroMemcpyDtoHAsync( &nodeCapacity, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
-				oroStreamSynchronize( stream );
 			}
-
-			int lpSize = nodeCapacity;
+			int nodeCapacity = 256; // because all patterns are only 256
+			uint32_t nInput = numberOfVoxels;
+			int lpSize = numberOfVoxels;
 			std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
-
 			
 			nodeBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
 
 			int wide = gridRes;
 			int iteration = 0;
-			uint32_t nInput = numberOfVoxels;
 
 			Buffer nOutputTasks( sizeof( uint32_t ) );
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );

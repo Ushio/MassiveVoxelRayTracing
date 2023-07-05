@@ -279,7 +279,7 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 __device__ uint64_t g_octreeIterator0;
 __device__ uint64_t g_octreeIterator1;
 
-extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks, uint32_t* nPotentialMaxNodes )
+extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks )
 {
 	uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if( i < numberOfVoxels )
@@ -287,12 +287,6 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 		outputOctreeTasks[i].morton = inputMortonVoxels[i];
 		outputOctreeTasks[i].child = -1;
 		outputOctreeTasks[i].numberOfVoxels = 1;
-
-		bool leader = i == 0 || ( inputMortonVoxels[i - 1] >> 3 ) != ( inputMortonVoxels[i] >> 3 );
-		if( leader )
-		{
-			atomicInc( nPotentialMaxNodes, 0xFFFFFFFF );
-		}
     }
 
     if( i == 0 )
@@ -300,6 +294,8 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 		g_octreeIterator0 = 0;
     }
 }
+
+
 
 #define BOTTOM_UP_BLOCK_SIZE 2048
 extern "C" __global__ void bottomUpOctreeBuild( 
