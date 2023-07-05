@@ -16,6 +16,10 @@ typedef unsigned char uint8_t;
 #endif
 #endif
 
+#if defined( CUDART_VERSION ) && CUDART_VERSION >= 9000
+#define ITS 1
+#endif
+
 struct OctreeTask
 {
 	uint64_t morton;
@@ -82,3 +86,8 @@ struct OctreeNode
 		return false;
 	}
 };
+
+#define LP_OCCUPIED_BIT 0x80000000
+#define LP_LOCK         0xFFFFFFFF
+#define LP_VALUE_BIT    0x7FFFFFFF
+

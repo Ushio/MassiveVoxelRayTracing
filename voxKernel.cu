@@ -247,33 +247,30 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	for( int i = 0; i < streamCompaction.steps(); i++ )
 	{
 		uint32_t itemIndex = streamCompaction.itemIndex( i );
-		if( itemIndex < totalDumpedVoxels )
+		uint32_t d = streamCompaction.destination( i, &globalPrefix );
+		if( d != -1 ) // voted
 		{
-			uint32_t d = streamCompaction.destination( i, &globalPrefix );
-			if( d != -1 ) // voted
+			uint64_t morton = inputMortonVoxels[itemIndex];
+			outputMortonVoxels[d] = morton;
+
+			int R = 0;
+			int G = 0;
+			int B = 0;
+			int n = 0;
+			for( int j = itemIndex; j < totalDumpedVoxels && inputMortonVoxels[j] == morton; j++ )
 			{
-				uint64_t morton = inputMortonVoxels[itemIndex];
-				outputMortonVoxels[d] = morton;
-
-				int R = 0;
-				int G = 0;
-				int B = 0;
-				int n = 0;
-				for( int j = itemIndex; j < totalDumpedVoxels && inputMortonVoxels[j] == morton; j++ )
-				{
-					R += inputVoxelColors[j].x;
-					G += inputVoxelColors[j].y;
-					B += inputVoxelColors[j].z;
-					n++;
-				}
-				uchar4 meanColor = {
-					(uint8_t)( R / n ),
-					(uint8_t)( G / n ),
-					(uint8_t)( B / n ),
-					255 };
-
-				outputVoxelColors[d] = meanColor;
+				R += inputVoxelColors[j].x;
+				G += inputVoxelColors[j].y;
+				B += inputVoxelColors[j].z;
+				n++;
 			}
+			uchar4 meanColor = {
+				(uint8_t)( R / n ),
+				(uint8_t)( G / n ),
+				(uint8_t)( B / n ),
+				255 };
+
+			outputVoxelColors[d] = meanColor;
 		}
 	}
 }
@@ -305,7 +302,12 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 }
 
 #define BOTTOM_UP_BLOCK_SIZE 2048
-extern "C" __global__ void bottomUpOctreeBuild( int iteration, const OctreeTask* inputOctreeTasks, uint32_t nInput, OctreeTask* outputOctreeTasks, uint32_t* nOutputTasks, OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes )
+extern "C" __global__ void bottomUpOctreeBuild( 
+	int iteration,
+	const OctreeTask* inputOctreeTasks, uint32_t nInput, 
+	OctreeTask* outputOctreeTasks, uint32_t* nOutputTasks, 
+	OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes,
+	uint32_t* lpBuffer, uint32_t lpSize )
 {
 	__shared__ StreamCompaction64<BOTTOM_UP_BLOCK_SIZE> streamCompaction;
 	streamCompaction.init();
@@ -328,38 +330,95 @@ extern "C" __global__ void bottomUpOctreeBuild( int iteration, const OctreeTask*
 	for( int i = 0; i < streamCompaction.steps(); i++ )
 	{
 		uint32_t itemIndex = streamCompaction.itemIndex( i );
-		if( itemIndex < nInput )
-		{
-			uint32_t d = streamCompaction.destination( i, &globalPrefix );
-			if( d != -1 ) // voted
-			{
-				OctreeNode node;
-				node.mask = 0;
-				node.numberOfVoxels = 0;
-				for( int j = 0; j < 8; j++ )
-				{
-					node.children[j] = -1;
-				}
+		uint32_t d = streamCompaction.destination( i, &globalPrefix );
 
-				// set child
-				uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
-				for( int j = itemIndex; j < nInput && inputOctreeTasks[j].getMortonParent() == mortonParent; j++ )
-				{
-					uint32_t space = inputOctreeTasks[j].morton & 0x7;
-					node.mask |= ( 1 << space ) & 0xFF;
-					node.children[space] = inputOctreeTasks[j].child;
-					node.numberOfVoxels += inputOctreeTasks[j].numberOfVoxels;
-				}
-				
-				uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
+		OctreeNode node;
+		node.mask = 0;
+		node.numberOfVoxels = 0;
+		for( int j = 0; j < 8; j++ )
+		{
+			node.children[j] = -1;
+		}
+
+		if( d != -1 ) // voted
+		{
+			// set child
+			uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
+			for( int j = itemIndex; j < nInput && inputOctreeTasks[j].getMortonParent() == mortonParent; j++ )
+			{
+				uint32_t space = inputOctreeTasks[j].morton & 0x7;
+				node.mask |= ( 1 << space ) & 0xFF;
+				node.children[space] = inputOctreeTasks[j].child;
+				node.numberOfVoxels += inputOctreeTasks[j].numberOfVoxels;
+			}
+
+			//uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
+			//outputOctreeNodes[nodeIndex] = node;
+
+			//outputOctreeTasks[d].morton = mortonParent;
+			//outputOctreeTasks[d].child = nodeIndex;
+			//outputOctreeTasks[d].numberOfVoxels = node.numberOfVoxels;
+
+			//atomicInc( nOutputTasks, 0xFFFFFFFF );
+		}
+
+		uint32_t nodeIndex = -1;
+		uint32_t home = node.getHash() % lpSize;
+
+		bool done = d == -1;
+#if defined( ITS )
+		__syncwarp();
+		for( int i = 0; __all_sync( 0xFFFFFFFF, done ) == false; i++ )
+#else
+		for( int i = 0; __all( done ) == false; i++ )
+#endif
+		{
+			if( done )
+			{
+				continue;
+			}
+
+			int location = ( home + i ) % lpSize;
+			uint32_t v = atomicCAS( &lpBuffer[location], 0, LP_LOCK );
+
+			__threadfence();
+
+			if( v == 0 ) // succeeded to lock
+			{
+				nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
 				outputOctreeNodes[nodeIndex] = node;
 
-				outputOctreeTasks[d].morton = mortonParent;
-				outputOctreeTasks[d].child = nodeIndex;
-				outputOctreeTasks[d].numberOfVoxels = node.numberOfVoxels;
+				__threadfence();
 
-				atomicInc( nOutputTasks, 0xFFFFFFFF );
+				atomicExch( &lpBuffer[location], nodeIndex | LP_OCCUPIED_BIT );
+
+				done = true;
 			}
+			else if( v == LP_LOCK ) // someone is locking it
+			{
+				i--;
+				continue; // try again
+			}
+			else
+			{
+				uint32_t otherNodeIndex = v & LP_VALUE_BIT;
+				if( node == outputOctreeNodes[otherNodeIndex] )
+				{
+					nodeIndex = otherNodeIndex;
+
+					done = true;
+				}
+			}
+		}
+
+		if( d != -1 )
+		{
+			uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
+			outputOctreeTasks[d].morton = mortonParent;
+			outputOctreeTasks[d].child = nodeIndex;
+			outputOctreeTasks[d].numberOfVoxels = node.numberOfVoxels;
+
+			atomicInc( nOutputTasks, 0xFFFFFFFF );
 		}
 	}
 

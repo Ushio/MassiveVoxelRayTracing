@@ -325,7 +325,9 @@ int main()
 				oroMemcpyDtoHAsync( &nodeCapacity, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 				oroStreamSynchronize( stream );
 			}
-			// nodeCapacity = numberOfVoxels;
+
+			int lpSize = nodeCapacity;
+			std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
 
 			int numberOfNode = 0;
 			std::unique_ptr<Buffer> nodeBuffer( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
@@ -341,6 +343,7 @@ int main()
 			while( 1 < ( gridRes >> iteration ) )
 			{
 				oroMemsetD32Async( (oroDeviceptr)nOutputTasks.data(), 0, 1, stream );
+				oroMemsetD32Async( (oroDeviceptr)lpBuffer->data(), 0, lpSize, stream );
 
 				ShaderArgument args;
 				args.add( iteration );
@@ -350,6 +353,8 @@ int main()
 				args.add( nOutputTasks.data() );
 				args.add( nodeBuffer->data() );
 				args.add( counterBuffer.data() ); // nOutputNodes
+				args.add( lpBuffer->data() );
+				args.add( lpSize );
 				voxKernel.launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, 64, 1, 1, stream );
 				 
 				oroMemcpyDtoHAsync( &numberOfNode, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
@@ -369,7 +374,6 @@ int main()
 
 				iteration++;
 			}
-			printf( "r %f\n", (double)nodeCapacity / numberOfNode );
 
 			// temporal construction
 			octreeVoxel->m_lower = origin;
