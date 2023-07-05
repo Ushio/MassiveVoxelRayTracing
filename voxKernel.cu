@@ -332,12 +332,12 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		uint32_t itemIndex = streamCompaction.itemIndex( i );
 		uint32_t d = streamCompaction.destination( i, &globalPrefix );
 
-		OctreeNode node;
-		node.mask = 0;
-		node.numberOfVoxels = 0;
+		uint8_t mask = 0;
+		uint32_t numberOfVoxels = 0;
+		uint32_t children[8];
 		for( int j = 0; j < 8; j++ )
 		{
-			node.children[j] = -1;
+			children[j] = -1;
 		}
 
 		if( d != -1 ) // voted
@@ -347,23 +347,35 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			for( int j = itemIndex; j < nInput && inputOctreeTasks[j].getMortonParent() == mortonParent; j++ )
 			{
 				uint32_t space = inputOctreeTasks[j].morton & 0x7;
-				node.mask |= ( 1 << space ) & 0xFF;
-				node.children[space] = inputOctreeTasks[j].child;
-				node.numberOfVoxels += inputOctreeTasks[j].numberOfVoxels;
+				mask |= ( 1 << space ) & 0xFF;
+				children[space] = inputOctreeTasks[j].child;
+				numberOfVoxels += inputOctreeTasks[j].numberOfVoxels;
 			}
 
+			// Naive. Be careful for allocations
 			//uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
-			//outputOctreeNodes[nodeIndex] = node;
+			//outputOctreeNodes[nodeIndex].mask = mask;
+			//outputOctreeNodes[nodeIndex].numberOfVoxels = numberOfVoxels;
+			//for( int j = 0; j < 8; j++ )
+			//{
+			//	outputOctreeNodes[nodeIndex].children[j] = children[j];
+			//}
 
 			//outputOctreeTasks[d].morton = mortonParent;
 			//outputOctreeTasks[d].child = nodeIndex;
-			//outputOctreeTasks[d].numberOfVoxels = node.numberOfVoxels;
+			//outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
 
 			//atomicInc( nOutputTasks, 0xFFFFFFFF );
 		}
 
 		uint32_t nodeIndex = -1;
-		uint32_t home = node.getHash() % lpSize;
+
+		uint32_t h = hash( mask );
+		for( int i = 0; i < 8; i++ )
+		{
+			h = h ^ hash( children[i] );
+		}
+		uint32_t home = h % lpSize;
 
 		bool done = d == -1;
 #if defined( ITS )
@@ -386,7 +398,12 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			if( v == 0 ) // succeeded to lock
 			{
 				nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
-				outputOctreeNodes[nodeIndex] = node;
+				outputOctreeNodes[nodeIndex].mask = mask;
+				outputOctreeNodes[nodeIndex].numberOfVoxels = numberOfVoxels;
+				for( int j = 0; j < 8; j++ )
+				{
+					outputOctreeNodes[nodeIndex].children[j] = children[j];
+				}
 
 				__threadfence();
 
@@ -402,7 +419,17 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			else
 			{
 				uint32_t otherNodeIndex = v & LP_VALUE_BIT;
-				if( node == outputOctreeNodes[otherNodeIndex] )
+				bool isEqual = outputOctreeNodes[otherNodeIndex].mask == mask;
+				if( isEqual )
+				for( int j = 0; j < 8; j++ )
+				{
+					if( outputOctreeNodes[otherNodeIndex].children[j] != children[j] )
+					{
+						isEqual = false;
+						break;
+					}
+				}
+				if( isEqual )
 				{
 					nodeIndex = otherNodeIndex;
 
@@ -416,7 +443,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
 			outputOctreeTasks[d].morton = mortonParent;
 			outputOctreeTasks[d].child = nodeIndex;
-			outputOctreeTasks[d].numberOfVoxels = node.numberOfVoxels;
+			outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
 
 			atomicInc( nOutputTasks, 0xFFFFFFFF );
 		}
