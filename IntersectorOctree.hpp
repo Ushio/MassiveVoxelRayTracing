@@ -7,66 +7,6 @@
 #include "morton.hpp"
 #include "voxCommon.hpp"
 
-inline uint32_t hash( uint32_t x )
-{
-	x *= 0x9e3779b9u;
-	x ^= x >> 16;
-	return x;
-}
-
-
-
-struct OctreeNode
-{
-	uint8_t mask;
-	uint32_t numberOfVoxels;
-	uint32_t children[8];
-
-	uint32_t getHash() const
-	{
-		uint32_t h = hash( mask );
-		for( int i = 0; i < 8; i++ )
-		{
-			h = h ^ hash( children[i] );
-		}
-		return h;
-	}
-	bool operator==( const OctreeNode& rhs )
-	{
-		if( mask != rhs.mask )
-		{
-			return false;
-		}
-		for( int i = 0; i < 8; i++ )
-		{
-			if( children[i] != rhs.children[i] )
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	bool operator<( const OctreeNode& rhs ) const
-	{
-		// maybe fix this later
-		if( mask != rhs.mask )
-		{
-			return mask < rhs.mask;
-		}
-
-		for( int i = 0; i < 8; i++ )
-		{
-			if( children[i] == rhs.children[i] )
-			{
-				continue;
-			}
-			return children[i] < rhs.children[i];
-		}
-		return false;
-	}
-};
-
 inline float maxElement( float a, float b, float c )
 {
 	return glm::max( glm::max( a, b ), c );
@@ -115,8 +55,8 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 				continue;
 			}
 
-			uint64_t pMorton = curTasks[group.beg].morton >> 3; // Parent
-			if( pMorton == ( curTasks[i].morton >> 3 ) )
+			uint64_t pMorton = curTasks[group.beg].getMortonParent(); // Parent
+			if( pMorton == ( curTasks[i].getMortonParent() ) )
 			{
 				group.end = i + 1;
 			}
@@ -168,7 +108,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 			}
 
 			OctreeTask nextTask;
-			nextTask.morton = curTasks[group.beg].morton >> 3;
+			nextTask.morton = curTasks[group.beg].getMortonParent();
 			nextTask.child = nodeIndex;
 			nextTask.numberOfVoxels = node.numberOfVoxels;
 			nextTasks.push_back( nextTask );

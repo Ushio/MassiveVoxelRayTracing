@@ -311,28 +311,79 @@ int main()
 			std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 			std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 
+			int nodeCapacity = 0;
 			{
+				oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+
 				ShaderArgument args;
 				args.add( mortonVoxelsBuffer->data() );
 				args.add( numberOfVoxels );
 				args.add( octreeTasksBuffer0->data() );
+				args.add( counterBuffer.data() );
 				voxKernel.launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
+
+				oroMemcpyDtoHAsync( &nodeCapacity, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+				oroStreamSynchronize( stream );
 			}
+			// nodeCapacity = numberOfVoxels;
+
+			int numberOfNode = 0;
+			std::unique_ptr<Buffer> nodeBuffer( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
+
 			int wide = gridRes;
-			while( 1 < wide )
+			int iteration = 0;
+			uint32_t nInput = numberOfVoxels;
+
+			Buffer nOutputTasks( sizeof( uint32_t ) );
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+
+#define BOTTOM_UP_BLOCK_SIZE 2048
+			while( 1 < ( gridRes >> iteration ) )
 			{
+				oroMemsetD32Async( (oroDeviceptr)nOutputTasks.data(), 0, 1, stream );
 
+				ShaderArgument args;
+				args.add( iteration );
+				args.add( octreeTasksBuffer0->data() );
+				args.add( nInput );
+				args.add( octreeTasksBuffer1->data() );
+				args.add( nOutputTasks.data() );
+				args.add( nodeBuffer->data() );
+				args.add( counterBuffer.data() ); // nOutputNodes
+				voxKernel.launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, 64, 1, 1, stream );
+				 
+				oroMemcpyDtoHAsync( &numberOfNode, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+				oroMemcpyDtoHAsync( &nInput, (oroDeviceptr)nOutputTasks.data(), sizeof( uint32_t ), stream );
+				oroStreamSynchronize( stream );
 
+				if( nodeCapacity < numberOfNode + nInput )
+				{
+					nodeCapacity = numberOfNode + nInput;
+					std::unique_ptr<Buffer> newNodeBuffer( new Buffer( sizeof( OctreeNode ) * nodeCapacity ) );
+					oroMemcpyDtoDAsync( (oroDeviceptr)newNodeBuffer->data(), (oroDeviceptr)nodeBuffer->data(), sizeof( OctreeNode ) * numberOfNode, stream );
+					oroStreamSynchronize( stream );
+					std::swap( nodeBuffer, newNodeBuffer );
+				}
 
-				wide /= 2;
+				std::swap( octreeTasksBuffer0, octreeTasksBuffer1 );
+
+				iteration++;
 			}
+			printf( "r %f\n", (double)nodeCapacity / numberOfNode );
 
-			mortonVoxels.resize( numberOfVoxels );
+			// temporal construction
+			octreeVoxel->m_lower = origin;
+			octreeVoxel->m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
+			octreeVoxel->m_nodes.resize( numberOfNode );
+			oroMemcpyDtoHAsync( octreeVoxel->m_nodes.data(), (oroDeviceptr)nodeBuffer->data(), sizeof( OctreeNode ) * numberOfNode, stream );
+			oroStreamSynchronize( stream );
+
+			//mortonVoxels.resize( numberOfVoxels );
+			//oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * numberOfVoxels, stream );
 			voxelColors.resize( numberOfVoxels );
-			oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * numberOfVoxels, stream );
 			oroMemcpyDtoHAsync( voxelColors.data(), (oroDeviceptr)voxelColorsBuffer->data(), sizeof( glm::u8vec4 ) * numberOfVoxels, stream );
 
-			oroStreamSynchronize( stream );
+			//oroStreamSynchronize( stream );
 
 			// printf( "%d %d %f ms\n", counter, (int)mortonVoxels.size(), voxCountms );
 		}
@@ -346,6 +397,7 @@ int main()
 
 		double octreeBuildMS = 0.0;
 		double embreeBuildMS = 0.0;
+		#if 0
 		if( buildAccelerationStructure )
 		{
 			//printf( "before %d\n", mortonVoxels.size() );
@@ -363,6 +415,7 @@ int main()
 			}
 			octreeBuildMS = sw.elapsed() * 1000.0;
 		}
+		#endif
 
 		#if 1
 		Image2DRGBA8 image;
