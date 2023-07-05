@@ -439,7 +439,8 @@ extern "C" __global__ void render(
 	uint32_t* taskCounter, StackElement* stackBuffer,
 	CameraPinhole pinhole,
 	const OctreeNode* nodes, uint32_t nodeIndex, const uchar4* voxelColors,
-	float3 lower, float3 upper )
+	float3 lower, float3 upper,
+	int showVertexColor )
 {
 	__shared__ uint32_t taskIdx;
 
@@ -473,10 +474,16 @@ extern "C" __global__ void render(
 		uchar4 colorOut = { 0, 0, 0, 255 };
 		if( t != MAX_FLOAT )
 		{
-			//float3 hitN = getHitN( nMajor, rd );
-			//float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
-			//colorOut = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
-			colorOut = voxelColors[vIndex];
+			if( showVertexColor )
+			{
+				colorOut = voxelColors[vIndex];
+			}
+			else
+			{
+				float3 hitN = getHitN( nMajor, rd );
+				float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
+				colorOut = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
+			}
 		}
 		frameBuffer[y * resolution.x + x] = colorOut;
 	}

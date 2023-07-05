@@ -158,16 +158,8 @@ int main()
 	bool drawModel = true;
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
-	bool renderParallel = false;
 
-	enum DAGBUILD
-	{
-		DAGBUILD_NO,
-		DAGBUILD_REF,
-	};
-	int dagBuild = DAGBUILD_REF;
 	pr::ITexture* bgTexture = 0;
-	std::shared_ptr<IntersectorOctree> octreeVoxel( new IntersectorOctree() );
 
 	SetDepthTest( true );
 
@@ -378,22 +370,6 @@ int main()
 				iteration++;
 			}
 
-			// temporal construction
-			octreeVoxel->m_lower = origin;
-			octreeVoxel->m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
-			octreeVoxel->m_nodes.resize( numberOfNode );
-			oroMemcpyDtoHAsync( octreeVoxel->m_nodes.data(), (oroDeviceptr)nodeBuffer->data(), sizeof( OctreeNode ) * numberOfNode, stream );
-			oroStreamSynchronize( stream );
-
-			//mortonVoxels.resize( numberOfVoxels );
-			//oroMemcpyDtoHAsync( mortonVoxels.data(), (oroDeviceptr)mortonVoxelsBuffer->data(), sizeof( uint64_t ) * numberOfVoxels, stream );
-			voxelColors.resize( numberOfVoxels );
-			oroMemcpyDtoHAsync( voxelColors.data(), (oroDeviceptr)voxelColorsBuffer->data(), sizeof( glm::u8vec4 ) * numberOfVoxels, stream );
-
-			//oroStreamSynchronize( stream );
-
-			// printf( "%d %d %f ms\n", counter, (int)mortonVoxels.size(), voxCountms );
-
 			oroStream.stop();
 			buildMS = oroStream.getMs();
 		}
@@ -434,6 +410,7 @@ int main()
 			args.add( voxelColorsBuffer->data() );
 			args.add( lower );
 			args.add( upper );
+			args.add( showVertexColor ? 1 : 0 );
 			
 			voxKernel.launch( "render", args, nBlock, 1, 1, nThreads, 1, 1, stream );
 			
@@ -480,13 +457,9 @@ int main()
 		}
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
-		ImGui::Checkbox( "showVertexColor( DAG Only )", &showVertexColor );
+		ImGui::Checkbox( "showVertexColor", &showVertexColor );
 		ImGui::Text( "build(ms) = %f", buildMS );
-		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
-		//ImGui::Text( "RT (ms) = %f", RT_MS );
-		ImGui::Checkbox( "renderParallel", &renderParallel );
-		ImGui::RadioButton( "DAG: none", &dagBuild, DAGBUILD_NO );
-		ImGui::RadioButton( "DAG: reference", &dagBuild, DAGBUILD_REF );
+		ImGui::Text( "octree   = %lld byte", numberOfNode * sizeof( OctreeNode ) );
 		
 		ImGui::End();
 
