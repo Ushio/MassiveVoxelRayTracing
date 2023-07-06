@@ -82,9 +82,6 @@ struct IntersectorOctreeGPU
 		oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), const_cast<glm::vec3*>( vertices.data() ), vertexBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
 
-		std::unique_ptr<Buffer> stackBuffer;
-		std::unique_ptr<Buffer> frameBuffer;
-
 		glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 		glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
 		for( int i = 0; i < vertices.size(); i++ )
@@ -124,7 +121,6 @@ struct IntersectorOctreeGPU
 			oroFree( (oroDeviceptr)m_vcolorBuffer );
 		}
 		oroMalloc( (oroDeviceptr*)&m_vcolorBuffer, sizeof( uchar4 ) * totalDumpedVoxels );
-		
 
 		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 
@@ -184,7 +180,6 @@ struct IntersectorOctreeGPU
 		}
 
 		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
-		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 
 		int nIteration = 0;
 		_BitScanForward( (unsigned long*)&nIteration, gridRes );
@@ -205,16 +200,17 @@ struct IntersectorOctreeGPU
 		oroMemcpyDtoHAsync( taskCounters.data(), (oroDeviceptr)taskCountersBuffer.data(), sizeof( uint32_t ) * nIteration, stream );
 		oroStreamSynchronize( stream );
 
+		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
+
 		int nTotalInternalNodes = 0;
-		for( auto counter : taskCounters )
+		for( int i = 0; i < taskCounters.size() ; i++ )
 		{
-			nTotalInternalNodes += counter;
+			nTotalInternalNodes += i == 0 ? 256 /* DAG */ : taskCounters[i];
 		}
 
 		int lpSize = taskCounters[0];
 		std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
 
-		// TODO minimize allocation
 		if( m_nodeBuffer )
 		{
 			oroFree( (oroDeviceptr)m_nodeBuffer );
@@ -252,6 +248,9 @@ struct IntersectorOctreeGPU
 
 		oroMemcpyDtoHAsync( &m_numberOfNodes, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 		oroStreamSynchronize( stream );
+
+		assert( m_numberOfNodes <= nTotalInternalNodes );
+		// printf( "%d %d\n", m_numberOfNodes, nTotalInternalNodes );
 	}
 
 	IntersectorOctreeGPU( const IntersectorOctreeGPU& ) = delete;
