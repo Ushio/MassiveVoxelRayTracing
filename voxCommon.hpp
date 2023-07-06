@@ -41,12 +41,55 @@ struct OctreeTask
 	DEVICE uint64_t getMortonParent() const { return morton >> 3; }
 };
 
-DEVICE inline uint32_t hash( uint32_t x )
+//DEVICE inline uint32_t hash( uint32_t x )
+//{
+//	x *= 0x9e3779b9u;
+//	x ^= x >> 16;
+//	return x;
+//}
+
+DEVICE inline uint32_t fmix32( uint32_t h )
 {
-	x *= 0x9e3779b9u;
-	x ^= x >> 16;
-	return x;
+	h ^= h >> 16;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+
+	return h;
 }
+DEVICE inline uint32_t rotl32( uint32_t x, char r )
+{
+	return ( x << r ) | ( x >> ( 32 - r ) );
+}
+
+struct MurmurHash32
+{
+	DEVICE MurmurHash32( uint32_t seed ) : h1( seed )
+	{
+	}
+	DEVICE void combine( uint32_t k1 )
+	{
+		const uint32_t c1 = 0xcc9e2d51;
+		const uint32_t c2 = 0x1b873593;
+
+		k1 *= c1;
+		k1 = rotl32( k1, 15 );
+		k1 *= c2;
+
+		h1 ^= k1;
+		h1 = rotl32( h1, 13 );
+		h1 = h1 * 5 + 0xe6546b64;
+
+		len++;
+	}
+	DEVICE uint32_t getHash() const
+	{
+		return fmix32( h1 ^ ( len * 4 ) );
+	}
+	uint32_t h1 = 0;
+	uint32_t len = 0;
+};
 
 struct OctreeNode
 {
@@ -56,12 +99,11 @@ struct OctreeNode
 
 	DEVICE uint32_t getHash() const
 	{
-		uint32_t h = hash( mask );
+		MurmurHash32 h( 0 );
+		h.combine( mask );
 		for( int i = 0; i < 8; i++ )
-		{
-			h = h ^ hash( children[i] );
-		}
-		return h;
+			h.combine( children[i] );
+		return h.getHash();
 	}
 	DEVICE bool operator==( const OctreeNode& rhs )
 	{

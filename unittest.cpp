@@ -3,9 +3,38 @@
 
 #include "pr.hpp"
 #include "morton.hpp"
+#include "voxCommon.hpp"
+#include "MurmurHash3.h"
 
 UTEST_MAIN();
 
+UTEST( MurmurHash3, compatibility )
+{
+	using namespace pr;
+
+	Xoshiro128StarStar random;
+	for( int i = 0; i < 100000000; i++ )
+	{
+		uint32_t xs[16];
+		uint32_t n = random.uniformi() % 16;
+		for (int j = 0; j < n; j++)
+		{
+			xs[j] = (uint32_t)random.uniformi();
+		}
+		uint32_t s = (uint32_t)random.uniformi();
+		uint32_t h0;
+		MurmurHash3_x86_32( xs, n * 4, s, &h0 );
+
+		
+		MurmurHash32 hasher( s );
+		for (int j = 0; j < n; j++)
+		{
+			hasher.combine( xs[j] );
+		}
+		uint32_t h1 = hasher.getHash();
+		ASSERT_EQ( h0, h1 );
+	}
+}
 UTEST( morton, benchmark )
 {
 	using namespace pr;

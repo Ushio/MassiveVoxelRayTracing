@@ -500,7 +500,7 @@ int main()
 		ImGui::Checkbox( "showVertexColor", &showVertexColor );
 		ImGui::Text( "build(ms) = %f", buildMS );
 		ImGui::Text( "render(ms) = %f", renderMS );
-		//ImGui::Text( "octree   = %lld byte", numberOfNode * sizeof( OctreeNode ) );
+		ImGui::Text( "octree   = %lld byte", intersectorOctreeGPU.m_numberOfNodes * sizeof( OctreeNode ) );
 		
 		ImGui::End();
 

@@ -358,12 +358,11 @@ extern "C" __global__ void bottomUpOctreeBuild(
 
 		uint32_t nodeIndex = -1;
 
-		uint32_t h = hash( mask );
+		MurmurHash32 h( 0 );
+		h.combine( mask );
 		for( int i = 0; i < 8; i++ )
-		{
-			h = h ^ hash( children[i] );
-		}
-		uint32_t home = h % lpSize;
+			h.combine( children[i] );
+		uint32_t home = h.getHash() % lpSize;
 
 		bool done = d == -1;
 #if defined( ITS )
