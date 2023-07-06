@@ -15,17 +15,17 @@ DEVICE inline float ss_ceil( float value )
 
 #else
 #include <intrin.h>
-
 #ifndef DEVICE
 #define DEVICE
 #endif
 struct alignas(4) uchar4
 {
-	uint8_t x;
-	uint8_t y;
-	uint8_t z;
-	uint8_t w;
+	unsigned char x;
+	unsigned char y;
+	unsigned char z;
+	unsigned char w;
 };
+
 struct int2
 {
 	int x;
