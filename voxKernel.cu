@@ -2,6 +2,7 @@
 #include "voxelization.hpp"
 
 #include "voxCommon.hpp"
+#include "IntersectorOctreeGPU.hpp"
 
 // method to seperate bits from a given integer 3 positions apart
 __device__ inline uint64_t splitBy3( uint32_t a )
@@ -450,8 +451,7 @@ extern "C" __global__ void render(
 	uchar4* frameBuffer, int2 resolution, 
 	uint32_t* taskCounter, StackElement* stackBuffer,
 	CameraPinhole pinhole,
-	const OctreeNode* nodes, uint32_t nodeIndex, const uchar4* voxelColors,
-	float3 lower, float3 upper,
+	IntersectorOctreeGPU intersector,
 	int showVertexColor )
 {
 	__shared__ uint32_t taskIdx;
@@ -481,14 +481,14 @@ extern "C" __global__ void render(
 		float t = MAX_FLOAT;
 		int nMajor;
 		uint32_t vIndex = 0;
-		octreeTraverse_EfficientParametric( nodes, nodeIndex, stack, ro, rd, lower, upper, &t, &nMajor, &vIndex );
-
+		// octreeTraverse_EfficientParametric( nodes, nodeIndex, stack, ro, rd, lower, upper, &t, &nMajor, &vIndex );
+		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 		uchar4 colorOut = { 0, 0, 0, 255 };
 		if( t != MAX_FLOAT )
 		{
 			if( showVertexColor )
 			{
-				colorOut = voxelColors[vIndex];
+				colorOut = intersector.getVoxelColor( vIndex );
 			}
 			else
 			{

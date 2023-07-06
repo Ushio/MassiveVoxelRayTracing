@@ -1,7 +1,4 @@
-#include "morton.hpp"
 #include "pr.hpp"
-#include "voxelization.hpp"
-#include "IntersectorOctree.hpp"
 #include <iostream>
 #include <memory>
 #include <set>
@@ -11,257 +8,13 @@
 #include "Orochi/OrochiUtils.h"
 #include "hipUtil.hpp"
 
-#include "tinyhipradixsort.hpp"
-
+#include "IntersectorOctreeGPU.hpp"
 #include "voxCommon.hpp"
 
-void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
-{
-	std::map<uint64_t, glm::uvec4> voxels;
-	for (int i = 0; i < keys->size(); i++)
-	{
-		auto key = ( *keys )[i];
-		auto value = ( *values )[i];
-		auto it = voxels.find( key );
-		if( it == voxels.end() )
-		{
-			voxels[key] = { value.x, value.y, value.z, 1 };
-		}
-		else
-		{
-			it->second += glm::vec4{ value.x, value.y, value.z, 1 };
-		}
-	}
-	keys->clear();
-	values->clear();
-
-	for( auto kv : voxels )
-	{
-		keys->push_back( kv.first );
-		auto v = glm::u8vec4( kv.second / kv.second.w );
-
-		values->push_back( glm::u8vec4( kv.second / kv.second.w ) );
-	}
-}
 inline float3 toFloat3( glm::vec3 v )
 {
 	return { v.x, v.y, v.z };
 }
-
-struct IntersectorOctreeGPU
-{
-	IntersectorOctreeGPU() {}
-	~IntersectorOctreeGPU()
-	{
-		if( m_vcolorBuffer )
-		{
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
-		}
-		if( m_nodeBuffer )
-		{
-			oroFree( (oroDeviceptr)m_nodeBuffer );
-		}
-	}
-	void build( 
-		const std::vector<glm::vec3>& vertices, const std::vector<glm::vec3>& vcolors, 
-		Shader* voxKernel, oroStream stream,
-		int gridRes
-	)
-	{
-		thrs::RadixSort::Config rConfig;
-		rConfig.keyType = thrs::KeyType::U64;
-		rConfig.valueType = thrs::ValueType::U32;
-		static thrs::RadixSort radixsort( {}, rConfig );
-
-		// GPU buffer
-		static_assert( sizeof( glm::vec3 ) == sizeof( float3 ), "" );
-		Buffer vertexBuffer( sizeof( float3 ) * vertices.size() );
-		Buffer vcolorBuffer( sizeof( float3 ) * vcolors.size() );
-		Buffer counterBuffer( sizeof( uint32_t ) );
-
-		oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), const_cast<glm::vec3*>( vertices.data() ), vertexBuffer.bytes() );
-		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
-
-		glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
-		glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
-		for( int i = 0; i < vertices.size(); i++ )
-		{
-			bbox_lower = glm::min( bbox_lower, vertices[i] );
-			bbox_upper = glm::max( bbox_upper, vertices[i] );
-		}
-		
-		glm::vec3 origin = bbox_lower;
-		glm::vec3 bbox_size = bbox_upper - bbox_lower;
-		float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
-
-		m_lower = { origin.x, origin.y, origin.z };
-		m_upper = float3{ origin.x, origin.y, origin.z } + float3{ dps, dps, dps } * (float)gridRes;
-
-		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-		{
-			uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
-			ShaderArgument args;
-			args.add( vertexBuffer.data() );
-			args.add( vcolorBuffer.data() );
-			args.add( nTriangles );
-			args.add( counterBuffer.data() );
-			args.add( origin );
-			args.add( dps );
-			args.add( (uint32_t)gridRes );
-			voxKernel->launch( "voxCount", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
-		}
-
-		uint32_t totalDumpedVoxels = 0;
-		oroMemcpyDtoHAsync( &totalDumpedVoxels, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
-		oroStreamSynchronize( stream );
-
-		std::unique_ptr<Buffer> mortonVoxelsBuffer( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-		if( m_vcolorBuffer )
-		{
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
-		}
-		oroMalloc( (oroDeviceptr*)&m_vcolorBuffer, sizeof( uchar4 ) * totalDumpedVoxels );
-
-		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-
-		{
-			uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
-			ShaderArgument args;
-			args.add( vertexBuffer.data() );
-			args.add( vcolorBuffer.data() );
-			args.add( nTriangles );
-			args.add( counterBuffer.data() );
-			args.add( origin );
-			args.add( dps );
-			args.add( (uint32_t)gridRes );
-			args.add( mortonVoxelsBuffer->data() );
-			args.add( m_vcolorBuffer );
-			voxKernel->launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
-		}
-
-		{
-			auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( totalDumpedVoxels );
-			Buffer tmpBuffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() );
-			radixsort.sortPairs( mortonVoxelsBuffer->data(), (void*)m_vcolorBuffer, totalDumpedVoxels, tmpBuffer.data(), 0, 64, stream );
-			oroStreamSynchronize( stream );
-		}
-
-#define UNIQUE_BLOCK_SIZE 2048
-#define UNIQUE_BLOCK_THREADS 64
-
-		uint32_t numberOfVoxels = 0;
-		{
-			Buffer iteratorBuffer( sizeof( uint64_t ) );
-
-			auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-			uchar4* outputVoxelColorsBuffer = 0;
-			oroMalloc( (oroDeviceptr*)&outputVoxelColorsBuffer, sizeof( uchar4 ) * totalDumpedVoxels );
-
-			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-			oroMemsetD32Async( (oroDeviceptr)iteratorBuffer.data(), 0, iteratorBuffer.bytes() / 4, stream );
-
-			ShaderArgument args;
-			args.add( mortonVoxelsBuffer->data() );
-			args.add( outputMortonVoxelsBuffer->data() );
-			args.add( m_vcolorBuffer );
-			args.add( outputVoxelColorsBuffer );
-			args.add( totalDumpedVoxels );
-			args.add( iteratorBuffer.data() );
-			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
-
-			oroMemcpyDtoHAsync( &numberOfVoxels, (oroDeviceptr)iteratorBuffer.data(), sizeof( uint32_t ), stream );
-
-			oroStreamSynchronize( stream );
-
-			std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
-
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
-			m_vcolorBuffer = outputVoxelColorsBuffer;
-		}
-
-		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
-
-		int nIteration = 0;
-		_BitScanForward( (unsigned long*)&nIteration, gridRes );
-		Buffer taskCountersBuffer( sizeof( uint32_t ) * nIteration );
-		oroMemsetD32Async( (oroDeviceptr)taskCountersBuffer.data(), 0, nIteration, stream );
-
-		{
-			ShaderArgument args;
-			args.add( mortonVoxelsBuffer->data() );
-			args.add( numberOfVoxels );
-			args.add( octreeTasksBuffer0->data() );
-			args.add( taskCountersBuffer.data() );
-			args.add( gridRes );
-			voxKernel->launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
-		}
-
-		std::vector<int> taskCounters( nIteration );
-		oroMemcpyDtoHAsync( taskCounters.data(), (oroDeviceptr)taskCountersBuffer.data(), sizeof( uint32_t ) * nIteration, stream );
-		oroStreamSynchronize( stream );
-
-		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
-
-		int nTotalInternalNodes = 0;
-		for( int i = 0; i < taskCounters.size() ; i++ )
-		{
-			nTotalInternalNodes += i == 0 ? 256 /* DAG */ : taskCounters[i];
-		}
-
-		int lpSize = taskCounters[0];
-		std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
-
-		if( m_nodeBuffer )
-		{
-			oroFree( (oroDeviceptr)m_nodeBuffer );
-		}
-		oroMalloc( (oroDeviceptr*)&m_nodeBuffer, sizeof( OctreeNode ) * nTotalInternalNodes );
-
-		uint32_t nInput = numberOfVoxels;
-		int wide = gridRes;
-		int iteration = 0;
-
-		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-
-#define BOTTOM_UP_BLOCK_SIZE 4096
-		while( 1 < ( gridRes >> iteration ) )
-		{
-			oroMemsetD32Async( (oroDeviceptr)lpBuffer->data(), 0, lpSize, stream );
-
-			ShaderArgument args;
-			args.add( iteration );
-			args.add( octreeTasksBuffer0->data() );
-			args.add( nInput );
-			args.add( octreeTasksBuffer1->data() );
-			args.add( m_nodeBuffer );
-			args.add( counterBuffer.data() ); // nOutputNodes
-			args.add( lpBuffer->data() );
-			args.add( lpSize );
-			voxKernel->launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, 64, 1, 1, stream );
-
-			nInput = taskCounters[iteration];
-
-			std::swap( octreeTasksBuffer0, octreeTasksBuffer1 );
-
-			iteration++;
-		}
-
-		oroMemcpyDtoHAsync( &m_numberOfNodes, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
-		oroStreamSynchronize( stream );
-
-		assert( m_numberOfNodes <= nTotalInternalNodes );
-		// printf( "%d %d\n", m_numberOfNodes, nTotalInternalNodes );
-	}
-
-	IntersectorOctreeGPU( const IntersectorOctreeGPU& ) = delete;
-	void operator=( const IntersectorOctreeGPU& ) = delete;
-
-	uchar4* m_vcolorBuffer = 0;
-	OctreeNode* m_nodeBuffer = 0;
-	uint32_t m_numberOfNodes = 0;
-	float3 m_lower;
-	float3 m_upper;
-};
 
 int main()
 {
@@ -273,7 +26,7 @@ int main()
 		printf( "failed to init..\n" );
 		return 0;
 	}
-	int deviceIdx = 0;
+	int deviceIdx = 2;
 
 	oroError err;
 	err = oroInit( 0 );
@@ -441,11 +194,7 @@ int main()
 			args.add( counterBuffer.data() );
 			args.add( stackBuffer->data() );
 			args.add( pinhole );
-			args.add( intersectorOctreeGPU.m_nodeBuffer );
-			args.add( intersectorOctreeGPU.m_numberOfNodes - 1 );
-			args.add( intersectorOctreeGPU.m_vcolorBuffer );
-			args.add( intersectorOctreeGPU.m_lower );
-			args.add( intersectorOctreeGPU.m_upper );
+			args.add( intersectorOctreeGPU );
 			args.add( showVertexColor ? 1 : 0 );
 			
 			voxKernel.launch( "render", args, nBlock, 1, 1, nThreads, 1, 1, stream );
@@ -506,6 +255,8 @@ int main()
 
 		EndImGui();
 	}
+
+	intersectorOctreeGPU.cleanUp();
 
 	pr::CleanUp();
 }

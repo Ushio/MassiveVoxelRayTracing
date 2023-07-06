@@ -2,8 +2,7 @@
 
 #include <vector>
 #include "pr.hpp"
-
-
+#include "morton.hpp"
 
 inline void trianglesFlattened( std::shared_ptr<pr::FScene> scene, std::vector<glm::vec3>* vertices, std::vector<glm::vec3>* vcolors )
 {
