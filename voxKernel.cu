@@ -481,7 +481,6 @@ extern "C" __global__ void render(
 		float t = MAX_FLOAT;
 		int nMajor;
 		uint32_t vIndex = 0;
-		// octreeTraverse_EfficientParametric( nodes, nodeIndex, stack, ro, rd, lower, upper, &t, &nMajor, &vIndex );
 		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 		uchar4 colorOut = { 0, 0, 0, 255 };
 		if( t != MAX_FLOAT )
@@ -497,6 +496,90 @@ extern "C" __global__ void render(
 				colorOut = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
 			}
 		}
+		frameBuffer[y * resolution.x + x] = colorOut;
+	}
+}
+
+
+extern "C" __global__ void renderPT(
+	uchar4* frameBuffer, int2 resolution,
+	uint32_t* taskCounter, StackElement* stackBuffer,
+	CameraPinhole pinhole,
+	IntersectorOctreeGPU intersector,
+	int showVertexColor )
+{
+	__shared__ uint32_t taskIdx;
+
+	StackElement* stack = stackBuffer + blockIdx.x * 32 * blockDim.x + threadIdx.x * 32;
+
+	for( ;; )
+	{
+		if( threadIdx.x == 0 )
+		{
+			taskIdx = atomicInc( taskCounter, 0xFFFFFFFF );
+		}
+		__syncthreads();
+
+		uint32_t pixelIdx = taskIdx * blockDim.x + threadIdx.x;
+		if( resolution.x * resolution.y <= pixelIdx )
+		{
+			break;
+		}
+
+		uint32_t x = pixelIdx % resolution.x;
+		uint32_t y = pixelIdx / resolution.x;
+
+		const int nspp = 10;
+
+		float3 Lsum = {};
+
+		PCG32 rng;
+
+		rng.setup( 0, pixelIdx );
+
+		for( int spp = 0; spp < nspp; spp++ )
+		{
+			float3 ro, rd;
+			pinhole.shoot( &ro, &rd, x, y, uniformf( rng.nextU32() ), uniformf( rng.nextU32() ), resolution.x, resolution.y );
+
+			float3 T = { 1.0f, 1.0f, 1.0f };
+			float3 L = {};
+			for( int depth = 0; depth < 10; depth++ )
+			{
+				float t = MAX_FLOAT;
+				int nMajor;
+				uint32_t vIndex = 0;
+				intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+
+				if( t == MAX_FLOAT )
+				{
+					float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
+					float3 env = { I, I, I };
+					L += T * env;
+					break;
+				}
+
+				float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
+				float3 hitN = getHitN( nMajor, rd );
+				T *= R;
+			
+				float u0 = uniformf( rng.nextU32() );
+				float u1 = uniformf( rng.nextU32() );
+				float3 dir = sampleLambertian( u0, u1, hitN );
+
+				ro = ro + rd * t; // no self intersection
+				rd = dir;
+			}
+
+			Lsum += L;
+		}
+
+		float3 estimation = Lsum / (float)nspp;
+		uchar4 colorOut = { 
+			255 * INTRIN_POW( ss_min( estimation.x, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
+			255 * INTRIN_POW( ss_min( estimation.y, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
+			255 * INTRIN_POW( ss_min( estimation.z, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
+			255 };
 		frameBuffer[y * resolution.x + x] = colorOut;
 	}
 }

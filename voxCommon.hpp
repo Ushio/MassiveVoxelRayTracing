@@ -393,3 +393,79 @@ DEVICE inline T getHitN( int major, T rd )
 	}
 	return { 0.0f, 0.0f, 0.0f };
 }
+
+struct PCG32
+{
+	uint64_t state;
+	uint64_t inc;
+
+	DEVICE void setup( uint64_t seed, uint64_t stream )
+	{
+		state = 0;
+		inc = stream * 2 + 1;
+
+		nextU32();
+		state += seed;
+		nextU32();
+	}
+	DEVICE uint32_t nextU32()
+	{
+		uint64_t oldstate = state;
+		// Advance internal state
+		state = oldstate * 6364136223846793005ULL + inc;
+		// Calculate output function (XSH RR), uses old state for max ILP
+		uint32_t xorshifted = ( ( oldstate >> 18u ) ^ oldstate ) >> 27u;
+		uint32_t rot = oldstate >> 59u;
+		return ( xorshifted >> rot ) | ( xorshifted << ( ( -rot ) & 31 ) );
+	}
+};
+
+DEVICE inline float uniformf( uint32_t x )
+{
+	uint32_t bits = ( x >> 9 ) | 0x3f800000;
+	float value = *reinterpret_cast<float*>( &bits ) - 1.0f;
+	return value;
+}
+
+DEVICE inline void GetOrthonormalBasis( float3 zaxis, float3* xaxis, float3* yaxis )
+{
+	const float sign = copysignf( 1.0f, zaxis.z );
+	const float a = -1.0f / ( sign + zaxis.z );
+	const float b = zaxis.x * zaxis.y * a;
+	*xaxis = float3{ 1.0f + sign * zaxis.x * zaxis.x * a, sign * b, -sign * zaxis.x };
+	*yaxis = float3{ b, sign + zaxis.y * zaxis.y * a, -zaxis.y };
+}
+
+// PDF( Lambertian BRDF ) = cos( theta ) / PI
+// Sampling:
+//   Lambertian BRDF = R / PI
+//   Lambertian BRDF * cos( theta ) / PDF( Lambertian BRDF )
+//       = ( R / PI ) * cos( theta ) * ( PI / cos( theta ))
+//       = R
+DEVICE inline float3 sampleLambertian( float a, float b, const float3& Ng )
+{
+	float r = INTRIN_SQRT( a );
+	float theta = b * PI * 2.0f;
+
+	// uniform in xy circle, a = r * r
+	float x = r * INTRIN_COS( theta );
+	float y = r * INTRIN_SIN( theta );
+
+	// unproject to hemisphere
+	float z = INTRIN_SQRT( ss_max( 1.0f - a, 0.0f ) );
+
+	// local to global
+	float3 xaxis;
+	float3 yaxis;
+	GetOrthonormalBasis( Ng, &xaxis, &yaxis );
+	return xaxis * x + yaxis * y + Ng * z;
+}
+
+DEVICE inline float3 linearReflectance( uchar4 color )
+{
+	return {
+		INTRIN_POW( (float)color.x / 255.0f, 2.2f ),
+		INTRIN_POW( (float)color.y / 255.0f, 2.2f ),
+		INTRIN_POW( (float)color.z / 255.0f, 2.2f )
+	};
+}

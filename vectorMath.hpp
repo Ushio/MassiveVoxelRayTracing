@@ -18,6 +18,7 @@ DEVICE inline float ss_ceil( float value )
 #ifndef DEVICE
 #define DEVICE
 #endif
+
 struct alignas(4) uchar4
 {
 	unsigned char x;
@@ -65,7 +66,24 @@ inline float ss_ceil( float value )
 
 #endif
 
+#define PI 3.14159265358979323846264338327950288f
 #define MAX_FLOAT 3.402823466e+38F
+
+
+// -- Intrinsics --
+#if defined( __CUDACC__ ) || defined( __HIPCC__ )
+#define INTRIN_COS( x ) __cosf( ( x ) )
+#define INTRIN_SIN( x ) __sinf( ( x ) )
+#define INTRIN_SQRT( x ) __fsqrt_rn( ( x ) )
+#define INTRIN_RSQRT( x ) __frsqrt_rn( ( x ) )
+#define INTRIN_POW( x, y ) __expf( (y)*__logf( ( x ) ) )
+#else
+#define INTRIN_COS( x ) cosf( ( x ) )
+#define INTRIN_SIN( x ) sinf( ( x ) )
+#define INTRIN_SQRT( x ) sqrtf( ( x ) )
+#define INTRIN_RSQRT( x ) ( 1.0f / sqrtf( ( x ) ) )
+#define INTRIN_POW( x, y ) powf( ( x ), ( y ) )
+#endif
 
 template <class T>
 DEVICE inline T ss_max( T x, T y )
@@ -141,6 +159,23 @@ DEVICE inline float3 operator/( float3 a, float3 b )
 {
 	return { a.x / b.x, a.y / b.y, a.z / b.z };
 }
+#if defined( __CUDACC__ )
+DEVICE inline float3& operator+=( float3& a, float3 b )
+{
+	a = a + b;
+	return a;
+}
+DEVICE inline float3& operator-=( float3& a, float3 b )
+{
+	a = a - b;
+	return a;
+}
+DEVICE inline float3& operator*=( float3& a, float3 b )
+{
+	a = a * b;
+	return a;
+}
+#endif
 
 DEVICE inline float3 fmaxf( float3 a, float3 b )
 {
@@ -185,7 +220,10 @@ DEVICE inline float mix( float a, float b, float t )
 {
 	return a + ( b - a ) * t;
 }
-
+DEVICE inline float3 normalize( float3 v )
+{
+	return v * INTRIN_RSQRT( dot( v, v ) );
+}
 DEVICE inline float3 closestBarycentricCoordinateOnTriangle( float3 v0, float3 v1, float3 v2, float3 P )
 {
 	float3 d0 = v0 - P;
