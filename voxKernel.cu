@@ -133,25 +133,6 @@ extern "C" __global__ void voxelize( const float3 *vertices, const float3 *vcolo
     }
 }
 
-// for countUnique -> unique
-__device__ uint64_t g_iterator;
-
-extern "C" __global__ void countUnique( const uint64_t* mortonVoxels, uint32_t n, uint32_t* counter )
-{
-    uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if( i < n )
-    {
-        if( i == 0 || mortonVoxels[i-1] != mortonVoxels[i]  )
-        {
-            atomicInc( counter, 0xFFFFFFFF );
-        }
-    }
-	if( i == 0 )
-	{
-		g_iterator = 0;
-    }
-}
-
 #define UNIQUE_BLOCK_SIZE 2048
 #define UNIQUE_BLOCK_THREADS 64
 #define UNIQUE_NUMBER_OF_ITERATION ( UNIQUE_BLOCK_SIZE / UNIQUE_BLOCK_THREADS )
@@ -224,7 +205,7 @@ struct StreamCompaction64
     }
 };
 
-extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const uchar4* inputVoxelColors, uchar4* outputVoxelColors, uint32_t totalDumpedVoxels )
+extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const uchar4* inputVoxelColors, uchar4* outputVoxelColors, uint32_t totalDumpedVoxels, uint64_t *iterator )
 {
 	__shared__ StreamCompaction64<UNIQUE_BLOCK_SIZE> streamCompaction;
 	streamCompaction.init();
@@ -242,7 +223,7 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 		}
 	}
 
-	uint32_t globalPrefix = streamCompaction.synchronize( &g_iterator );
+	uint32_t globalPrefix = streamCompaction.synchronize( iterator );
 
 	for( int i = 0; i < streamCompaction.steps(); i++ )
 	{
@@ -279,14 +260,27 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 __device__ uint64_t g_octreeIterator0;
 __device__ uint64_t g_octreeIterator1;
 
-extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks )
+extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks, uint32_t* taskCounters, uint32_t gridRes )
 {
-	uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
     if( i < numberOfVoxels )
     {
-		outputOctreeTasks[i].morton = inputMortonVoxels[i];
+		uint64_t mortonL = inputMortonVoxels[max( i - 1, 0)];
+		uint64_t mortonR = inputMortonVoxels[i];
+
+		outputOctreeTasks[i].morton = mortonR;
 		outputOctreeTasks[i].child = -1;
 		outputOctreeTasks[i].numberOfVoxels = 1;
+
+		int iteration = 0;
+		while( 1 < ( gridRes >> iteration ) )
+		{
+			if( i == 0 || mortonL >> ( 3 * ( iteration + 1 ) ) != mortonR >> ( 3 * ( iteration + 1 ) ) )
+			{
+				atomicInc( &taskCounters[iteration], 0xFFFFFFFF );
+			}
+			iteration++;
+		}
     }
 
     if( i == 0 )
@@ -295,13 +289,11 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
     }
 }
 
-
-
-#define BOTTOM_UP_BLOCK_SIZE 2048
+#define BOTTOM_UP_BLOCK_SIZE 4096
 extern "C" __global__ void bottomUpOctreeBuild( 
 	int iteration,
 	const OctreeTask* inputOctreeTasks, uint32_t nInput, 
-	OctreeTask* outputOctreeTasks, uint32_t* nOutputTasks, 
+	OctreeTask* outputOctreeTasks, 
 	OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes,
 	uint32_t* lpBuffer, uint32_t lpSize )
 {
@@ -440,8 +432,6 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			outputOctreeTasks[d].morton = mortonParent;
 			outputOctreeTasks[d].child = nodeIndex;
 			outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
-
-			atomicInc( nOutputTasks, 0xFFFFFFFF );
 		}
 	}
 

@@ -23,6 +23,15 @@ typedef unsigned char uint8_t;
 #define ITS 1
 #endif
 
+DEVICE inline uint32_t div_round_up( uint32_t val, uint32_t divisor )
+{
+	return ( val + divisor - 1 ) / divisor;
+}
+DEVICE inline uint32_t next_multiple( uint32_t val, uint32_t divisor )
+{
+	return div_round_up( val, divisor ) * divisor;
+}
+
 struct OctreeTask
 {
 	uint64_t morton;
