@@ -11,11 +11,12 @@
 #include "IntersectorOctreeGPU.hpp"
 #include "voxCommon.hpp"
 
+#define RENDER_NUMBER_OF_THREAD 64
+
 inline float3 toFloat3( glm::vec3 v )
 {
 	return { v.x, v.y, v.z };
 }
-
 
 int main()
 {
@@ -27,7 +28,7 @@ int main()
 		printf( "failed to init..\n" );
 		return 0;
 	}
-	int deviceIdx = 0;
+	int deviceIdx = 2;
 
 	oroError err;
 	err = oroInit( 0 );
@@ -96,7 +97,7 @@ int main()
 	Buffer counterBuffer( sizeof( uint32_t ) );
 	IntersectorOctreeGPU intersectorOctreeGPU;
 	DynamicAllocatorGPU<StackElement> stackAllocator;
-	stackAllocator.setup( 16 * 256 /* numberOfBlock */, 32 /* blockSize */, 32 /* nElementPerThread */, stream );
+	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 32 /* nElementPerThread */, stream );
 
 	int iteration = 0;
 	std::unique_ptr<Buffer> frameBufferU8;
@@ -202,7 +203,7 @@ int main()
 				args.add( stackAllocator );
 				args.add( showVertexColor ? 1 : 0 );
 
-				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), 32 ), 1, 1, 32, 1, 1, stream );
+				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
 			}
 			{
 				ShaderArgument args;

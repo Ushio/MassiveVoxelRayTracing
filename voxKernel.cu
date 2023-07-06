@@ -500,7 +500,7 @@ extern "C" __global__ void render(
 	}
 }
 
-
+#define RENDER_NUMBER_OF_THREAD 64
 extern "C" __global__ void renderPT(
 	int iteration,
 	float4* frameBuffer, int2 resolution,
@@ -512,20 +512,38 @@ extern "C" __global__ void renderPT(
 	uint32_t stackHandle;
 	StackElement* stack = stackAllocator.acquire( &stackHandle );
 
-	uint32_t pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
-	if( pixelIdx < resolution.x * resolution.y )
+	__shared__ uint32_t s_iterator;
+	if( threadIdx.x == 0 )
 	{
-		uint32_t x = pixelIdx % resolution.x;
-		uint32_t y = pixelIdx / resolution.x;
+		s_iterator = 0;
+	}
+	__shared__ float localPixelValueXs[RENDER_NUMBER_OF_THREAD];
+	__shared__ float localPixelValueYs[RENDER_NUMBER_OF_THREAD];
+	__shared__ float localPixelValueZs[RENDER_NUMBER_OF_THREAD];
+	localPixelValueXs[threadIdx.x] = 0.0f;
+	localPixelValueYs[threadIdx.x] = 0.0f;
+	localPixelValueZs[threadIdx.x] = 0.0f;
 
-		const int nspp = 4;
+	__syncthreads();
 
-		float3 Lsum = {};
-		for( int spp = 0; spp < nspp; spp++ )
+	const int nBatchSpp = 16;
+
+	for( int i = 0; i < nBatchSpp; i++ )
+	{
+		uint32_t taskIdx = atomicInc( &s_iterator, 0xFFFFFFFF );
+		uint32_t localPixel = taskIdx / nBatchSpp;
+		uint32_t localSpp = taskIdx % nBatchSpp;
+		uint32_t pixelIdx = blockIdx.x * blockDim.x + localPixel;
+		uint32_t spp = iteration * nBatchSpp + localSpp;
+
+		if( pixelIdx < resolution.x * resolution.y )
 		{
+			uint32_t x = pixelIdx % resolution.x;
+			uint32_t y = pixelIdx / resolution.x;
+
 			MurmurHash32 hash( 0 );
 			hash.combine( pixelIdx );
-			hash.combine( iteration * nspp + spp );
+			hash.combine( spp );
 
 			PCG32 rng;
 			rng.setup( 0, hash.getHash() );
@@ -562,15 +580,19 @@ extern "C" __global__ void renderPT(
 				rd = dir;
 			}
 
-			Lsum += L;
+			atomicAdd( &localPixelValueXs[localPixel], L.x );
+			atomicAdd( &localPixelValueYs[localPixel], L.y );
+			atomicAdd( &localPixelValueZs[localPixel], L.z );
 		}
-
-		frameBuffer[y * resolution.x + x].x += Lsum.x;
-		frameBuffer[y * resolution.x + x].y += Lsum.y;
-		frameBuffer[y * resolution.x + x].z += Lsum.z;
-		frameBuffer[y * resolution.x + x].w += (float)nspp;
 	}
 
+	__syncthreads();
+
+	uint32_t pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	atomicAdd( &frameBuffer[pixelIdx].x, localPixelValueXs[threadIdx.x] );
+	atomicAdd( &frameBuffer[pixelIdx].y, localPixelValueYs[threadIdx.x] );
+	atomicAdd( &frameBuffer[pixelIdx].z, localPixelValueZs[threadIdx.x] );
+	atomicAdd( &frameBuffer[pixelIdx].w, (float)nBatchSpp );
 	stackAllocator.release( stackHandle );
 }
 
