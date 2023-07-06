@@ -503,33 +503,21 @@ extern "C" __global__ void render(
 
 extern "C" __global__ void renderPT(
 	uchar4* frameBuffer, int2 resolution,
-	uint32_t* taskCounter, StackElement* stackBuffer,
 	CameraPinhole pinhole,
 	IntersectorOctreeGPU intersector,
+	DynamicAllocatorGPU<StackElement> stackAllocator,
 	int showVertexColor )
 {
-	__shared__ uint32_t taskIdx;
+	uint32_t stackHandle;
+	StackElement* stack = stackAllocator.acquire( &stackHandle );
 
-	StackElement* stack = stackBuffer + blockIdx.x * 32 * blockDim.x + threadIdx.x * 32;
-
-	for( ;; )
+	uint32_t pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	if( pixelIdx < resolution.x * resolution.y )
 	{
-		if( threadIdx.x == 0 )
-		{
-			taskIdx = atomicInc( taskCounter, 0xFFFFFFFF );
-		}
-		__syncthreads();
-
-		uint32_t pixelIdx = taskIdx * blockDim.x + threadIdx.x;
-		if( resolution.x * resolution.y <= pixelIdx )
-		{
-			break;
-		}
-
 		uint32_t x = pixelIdx % resolution.x;
 		uint32_t y = pixelIdx / resolution.x;
 
-		const int nspp = 10;
+		const int nspp = 4;
 
 		float3 Lsum = {};
 
@@ -544,7 +532,7 @@ extern "C" __global__ void renderPT(
 
 			float3 T = { 1.0f, 1.0f, 1.0f };
 			float3 L = {};
-			for( int depth = 0; depth < 10; depth++ )
+			for( int depth = 0; depth < 8; depth++ )
 			{
 				float t = MAX_FLOAT;
 				int nMajor;
@@ -582,4 +570,6 @@ extern "C" __global__ void renderPT(
 			255 };
 		frameBuffer[y * resolution.x + x] = colorOut;
 	}
+
+	stackAllocator.release( stackHandle );
 }

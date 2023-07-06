@@ -95,8 +95,9 @@ int main()
 	// GPU buffer
 	Buffer counterBuffer( sizeof( uint32_t ) );
 	IntersectorOctreeGPU intersectorOctreeGPU;
+	DynamicAllocatorGPU<StackElement> stackAllocator;
+	stackAllocator.setup( 16 * 256 /* numberOfBlock */, 32 /* blockSize */, 32 /* nElementPerThread */, stream );
 
-	std::unique_ptr<Buffer> stackBuffer;
 	std::unique_ptr<Buffer> frameBuffer;
 
 	bool sixSeparating = true;
@@ -170,30 +171,21 @@ int main()
 			OroStopwatch oroStream( stream );
 			oroStream.start();
 
-			int nBlock = 16 * 256;
-			int nThreads = 256;
-
 			auto frameBufferBytes = image.width() * image.height() * sizeof( uchar4 );
 			if( !frameBuffer || frameBuffer->bytes() != frameBufferBytes )
 			{
 				frameBuffer = std::unique_ptr<Buffer>( new Buffer( frameBufferBytes ) );
 			}
-			if( !stackBuffer )
-			{
-				stackBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( StackElement ) * 32 * nThreads * nBlock ) );
-			}
-			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 
 			ShaderArgument args;
 			args.add( frameBuffer->data() );
 			args.add<int2>( { image.width(), image.height() } );
-			args.add( counterBuffer.data() );
-			args.add( stackBuffer->data() );
 			args.add( pinhole );
 			args.add( intersectorOctreeGPU );
+			args.add( stackAllocator );
 			args.add( showVertexColor ? 1 : 0 );
 			
-			voxKernel.launch( "renderPT", args, nBlock, 1, 1, nThreads, 1, 1, stream );
+			voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), 32 ), 1, 1, 32, 1, 1, stream );
 			
 			oroStream.stop();
 			renderMS = oroStream.getMs();
@@ -253,6 +245,7 @@ int main()
 	}
 
 	intersectorOctreeGPU.cleanUp();
+	stackAllocator.cleanUp();
 
 	pr::CleanUp();
 }

@@ -237,3 +237,89 @@ struct IntersectorOctreeGPU
 	float3 m_lower;
 	float3 m_upper;
 };
+
+template <class T>
+struct DynamicAllocatorGPU
+{
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	void setup( int numberOfBlock, int blockSize, int nElementPerThread, oroStream stream )
+	{
+		m_numberOfBlock = numberOfBlock;
+		m_blockSize = blockSize;
+		m_nElementPerThread = nElementPerThread;
+
+		if( m_memory )
+		{
+			oroFree( (oroDeviceptr)m_memory );
+		}
+		if( m_locks )
+		{
+			oroFree( (oroDeviceptr)m_locks );
+		}
+
+		oroMalloc( (oroDeviceptr*)&m_memory, sizeof( T ) * m_nElementPerThread * m_blockSize * m_numberOfBlock );
+		oroMalloc( (oroDeviceptr*)&m_locks, sizeof( uint32_t ) * m_nElementPerThread * m_blockSize * m_numberOfBlock );
+		oroMemsetD32Async( (oroDeviceptr)m_locks, 0, m_nElementPerThread * m_blockSize * m_numberOfBlock, stream );
+	}
+	void cleanUp()
+	{
+		if( m_memory )
+		{
+			oroFree( (oroDeviceptr)m_memory );
+			m_memory = 0;
+		}
+		if( m_locks )
+		{
+			oroFree( (oroDeviceptr)m_locks );
+			m_locks = 0;
+		}
+	}
+#else
+	DEVICE T* acquire( uint32_t* handle )
+	{
+		__shared__ uint32_t s_handle;
+
+		if( threadIdx.x == 0 )
+		{
+			MurmurHash32 h( 0x12345678 );
+			h.combine( blockIdx.x );
+			uint32_t i = h.getHash() % m_numberOfBlock;
+			for(;;)
+			{
+				uint32_t v = atomicCAS( &m_locks[i], 0, 0xFFFFFFFF );
+				if( v == 0 )
+				{
+					break;
+				}
+				i = ( i + 1 ) % m_numberOfBlock;
+			}
+
+			s_handle = i;
+		}
+
+		__syncthreads();
+		__threadfence();
+
+		uint32_t index = s_handle;
+		*handle = index;
+
+		return m_memory + index * m_nElementPerThread * m_blockSize + threadIdx.x * m_nElementPerThread;
+	}
+	DEVICE void release( uint32_t handle )
+	{
+		__threadfence();
+		__syncthreads();
+
+		if( threadIdx.x == 0 )
+		{
+			atomicExch( &m_locks[handle], 0 );
+		}
+	}
+#endif
+
+	T* m_memory;
+	uint32_t* m_locks;
+	int m_numberOfBlock;
+	int m_blockSize;
+	int m_nElementPerThread;
+};
