@@ -345,32 +345,10 @@ int main()
 
 	// GPU buffer
 	Buffer counterBuffer( sizeof( uint32_t ) );
-	// 
-	//static_assert( sizeof( glm::vec3 ) == sizeof( float3 ), "" );
-	//Buffer vertexBuffer( sizeof( float3 ) * vertices.size() );
-	//Buffer vcolorBuffer( sizeof( float3 ) * vcolors.size() );
-	//Buffer counterBuffer( sizeof( uint32_t ) );
-
-	//std::unique_ptr<Buffer> mortonVoxelsBuffer;
-	//std::unique_ptr<Buffer> voxelColorsBuffer;
-
-	//oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), vertices.data(), vertexBuffer.bytes() );
-	//oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), vcolors.data(), vcolorBuffer.bytes() );
-
-	//int numberOfNode = 0;
-	//std::unique_ptr<Buffer> nodeBuffer;
 	IntersectorOctreeGPU intersectorOctreeGPU;
 
 	std::unique_ptr<Buffer> stackBuffer;
 	std::unique_ptr<Buffer> frameBuffer;
-
-	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
-	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
-	for( int i = 0; i < vertices.size(); i++ )
-	{
-		bbox_lower = glm::min( bbox_lower, vertices[i] );
-		bbox_upper = glm::max( bbox_upper, vertices[i] );
-	}
 
 	bool sixSeparating = true;
 	int gridRes = 512;
@@ -422,174 +400,15 @@ int main()
 			}
 			PrimEnd();
 		}
-		OroStopwatch oroStream( stream );
-		oroStream.start();
-		intersectorOctreeGPU.build( vertices, vcolors, &voxKernel, stream, gridRes );
-		oroStream.stop();
-		double buildMS = oroStream.getMs();
-		//		static std::vector<uint64_t> mortonVoxels;
-//		static std::vector<glm::u8vec4> voxelColors;
-//		Stopwatch sw;
-//
-//		glm::vec3 origin = bbox_lower;
-//		glm::vec3 bbox_size = bbox_upper - bbox_lower;
-//		float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
-//
-//		double buildMS = 0.0;
-//		if( buildAccelerationStructure )
-//		{
-//			OroStopwatch oroStream( stream );
-//			oroStream.start();
-//
-//			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-//			{
-//				uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
-//				ShaderArgument args;
-//				args.add( vertexBuffer.data() );
-//				args.add( vcolorBuffer.data() );
-//				args.add( nTriangles );
-//				args.add( counterBuffer.data() );
-//				args.add( origin );
-//				args.add( dps );
-//				args.add( (uint32_t)gridRes );
-//				voxKernel.launch( "voxCount", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
-//			}
-//
-//
-//			uint32_t totalDumpedVoxels = 0;
-//			oroMemcpyDtoHAsync( &totalDumpedVoxels, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
-//			oroStreamSynchronize( stream );
-//
-//			uint64_t mortonVoxelsBytes = sizeof( uint64_t ) * totalDumpedVoxels;
-//			if( !mortonVoxelsBuffer || mortonVoxelsBuffer->bytes() < mortonVoxelsBytes )
-//			{
-//				mortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( mortonVoxelsBytes ) );
-//				voxelColorsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * totalDumpedVoxels ) );
-//			}
-//
-//			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-//
-//			{
-//				uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
-//				ShaderArgument args;
-//				args.add( vertexBuffer.data() );
-//				args.add( vcolorBuffer.data() );
-//				args.add( nTriangles );
-//				args.add( counterBuffer.data() );
-//				args.add( origin );
-//				args.add( dps );
-//				args.add( (uint32_t)gridRes );
-//				args.add( mortonVoxelsBuffer->data() );
-//				args.add( voxelColorsBuffer->data() );
-//				voxKernel.launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
-//			}
-//
-//			{
-//				auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( totalDumpedVoxels );
-//				Buffer tmpBuffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() );
-//				radixsort.sortPairs( mortonVoxelsBuffer->data(), voxelColorsBuffer->data(), totalDumpedVoxels, tmpBuffer.data(), 0, 64, stream );
-//				oroStreamSynchronize( stream );
-//			}
-//
-//#define UNIQUE_BLOCK_SIZE 2048
-//#define UNIQUE_BLOCK_THREADS 64
-//
-//			uint32_t numberOfVoxels = 0;
-//			{
-//				Buffer iteratorBuffer( sizeof( uint64_t ) );
-//
-//				auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-//				auto outputVoxelColorsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uchar4 ) * totalDumpedVoxels ) );
-//
-//				oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-//				oroMemsetD32Async( (oroDeviceptr)iteratorBuffer.data(), 0, iteratorBuffer.bytes() / 4, stream );
-//
-//				ShaderArgument args;
-//				args.add( mortonVoxelsBuffer->data() );
-//				args.add( outputMortonVoxelsBuffer->data() );
-//				args.add( voxelColorsBuffer->data() );
-//				args.add( outputVoxelColorsBuffer->data() );
-//				args.add( totalDumpedVoxels );
-//				args.add( iteratorBuffer.data() );
-//				voxKernel.launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
-//
-//				oroMemcpyDtoHAsync( &numberOfVoxels, (oroDeviceptr)iteratorBuffer.data(), sizeof( uint32_t ), stream );
-//
-//				oroStreamSynchronize( stream );
-//
-//				std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
-//				std::swap( voxelColorsBuffer, outputVoxelColorsBuffer );
-//			}
-//
-//			std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
-//			std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
-//
-//			int nIteration = 0;
-//			_BitScanForward( (unsigned long*)&nIteration, gridRes );
-//			Buffer taskCountersBuffer( sizeof(uint32_t) * nIteration );
-//			oroMemsetD32Async( (oroDeviceptr)taskCountersBuffer.data(), 0, nIteration, stream );
-//
-//			{
-//				ShaderArgument args;
-//				args.add( mortonVoxelsBuffer->data() );
-//				args.add( numberOfVoxels );
-//				args.add( octreeTasksBuffer0->data() );
-//				args.add( taskCountersBuffer.data() );
-//				args.add( gridRes );
-//				voxKernel.launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
-//			}
-//
-//			std::vector<int> taskCounters( nIteration );
-//			oroMemcpyDtoHAsync( taskCounters.data(), (oroDeviceptr)taskCountersBuffer.data(), sizeof( uint32_t ) * nIteration, stream );
-//			oroStreamSynchronize( stream );
-//
-//			int nTotalInternalNodes = 0;
-//			for( auto counter : taskCounters )
-//			{
-//				nTotalInternalNodes += counter;
-//			}
-//
-//			int lpSize = taskCounters[0];
-//			std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
-//			
-//			nodeBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( OctreeNode ) * nTotalInternalNodes ) );
-//
-//			uint32_t nInput = numberOfVoxels;
-//			int wide = gridRes;
-//			int iteration = 0;
-//
-//			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-//
-//#define BOTTOM_UP_BLOCK_SIZE 4096
-//			while( 1 < ( gridRes >> iteration ) )
-//			{
-//				oroMemsetD32Async( (oroDeviceptr)lpBuffer->data(), 0, lpSize, stream );
-//
-//				ShaderArgument args;
-//				args.add( iteration );
-//				args.add( octreeTasksBuffer0->data() );
-//				args.add( nInput );
-//				args.add( octreeTasksBuffer1->data() );
-//				args.add( nodeBuffer->data() );
-//				args.add( counterBuffer.data() ); // nOutputNodes
-//				args.add( lpBuffer->data() );
-//				args.add( lpSize );
-//				voxKernel.launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, 64, 1, 1, stream );
-//				 
-//				nInput = taskCounters[iteration];
-//
-//				std::swap( octreeTasksBuffer0, octreeTasksBuffer1 );
-//
-//				iteration++;
-//			}
-//
-//			oroMemcpyDtoHAsync( &numberOfNode, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
-//			oroStreamSynchronize( stream );
-//
-//			oroStream.stop();
-//			buildMS = oroStream.getMs();
-//		}
-		
+		double buildMS = 0.0;
+		if (buildAccelerationStructure)
+		{
+			OroStopwatch oroStream( stream );
+			oroStream.start();
+			intersectorOctreeGPU.build( vertices, vcolors, &voxKernel, stream, gridRes );
+			oroStream.stop();
+			buildMS = oroStream.getMs();
+		}
 
 		Image2DRGBA8 image;
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
