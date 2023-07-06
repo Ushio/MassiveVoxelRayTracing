@@ -435,6 +435,7 @@ int main()
 
 		ImGui::SetNextWindowSize( { 500, 800 }, ImGuiCond_Once );
 		ImGui::Begin( "Panel" );
+		ImGui::Text( "device = %s", props.name );
 		ImGui::Text( "fps = %f", GetFrameRate() );
 
 		ImGui::SeparatorText( "Voxlizaiton" );
