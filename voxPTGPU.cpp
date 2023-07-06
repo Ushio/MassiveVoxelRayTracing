@@ -98,7 +98,9 @@ int main()
 	DynamicAllocatorGPU<StackElement> stackAllocator;
 	stackAllocator.setup( 16 * 256 /* numberOfBlock */, 32 /* blockSize */, 32 /* nElementPerThread */, stream );
 
-	std::unique_ptr<Buffer> frameBuffer;
+	int iteration = 0;
+	std::unique_ptr<Buffer> frameBufferU8;
+	std::unique_ptr<Buffer> frameBufferF32;
 
 	bool sixSeparating = true;
 	int gridRes = 512;
@@ -112,9 +114,10 @@ int main()
 
 	while( pr::NextFrame() == false )
 	{
+		bool sceneChanged = false;
 		if( IsImGuiUsingMouse() == false )
 		{
-			UpdateCameraBlenderLike( &camera );
+			sceneChanged = UpdateCameraBlenderLike( &camera );
 		}
 		if( bgTexture )
 		{
@@ -171,26 +174,48 @@ int main()
 			OroStopwatch oroStream( stream );
 			oroStream.start();
 
-			auto frameBufferBytes = image.width() * image.height() * sizeof( uchar4 );
-			if( !frameBuffer || frameBuffer->bytes() != frameBufferBytes )
+			auto frameBufferF32Bytes = image.width() * image.height() * sizeof( float4 );
+			if( !frameBufferF32 || frameBufferF32->bytes() != frameBufferF32Bytes )
 			{
-				frameBuffer = std::unique_ptr<Buffer>( new Buffer( frameBufferBytes ) );
+				frameBufferF32 = std::unique_ptr<Buffer>( new Buffer( frameBufferF32Bytes ) );
+				oroMemsetD32Async( (oroDeviceptr)frameBufferF32->data(), 0, frameBufferF32->bytes() / 4, stream );
+			}
+			auto frameBufferU8Bytes = image.width() * image.height() * sizeof( uchar4 );
+			if( !frameBufferU8 || frameBufferU8->bytes() != frameBufferU8Bytes )
+			{
+				frameBufferU8 = std::unique_ptr<Buffer>( new Buffer( frameBufferU8Bytes ) );
 			}
 
-			ShaderArgument args;
-			args.add( frameBuffer->data() );
-			args.add<int2>( { image.width(), image.height() } );
-			args.add( pinhole );
-			args.add( intersectorOctreeGPU );
-			args.add( stackAllocator );
-			args.add( showVertexColor ? 1 : 0 );
-			
-			voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), 32 ), 1, 1, 32, 1, 1, stream );
-			
+			if( sceneChanged )
+			{
+				iteration = 0;
+				oroMemsetD32Async( (oroDeviceptr)frameBufferF32->data(), 0, frameBufferF32->bytes() / 4, stream );
+			}
+
+			{
+				ShaderArgument args;
+				args.add( iteration++ );
+				args.add( frameBufferF32->data() );
+				args.add<int2>( { image.width(), image.height() } );
+				args.add( pinhole );
+				args.add( intersectorOctreeGPU );
+				args.add( stackAllocator );
+				args.add( showVertexColor ? 1 : 0 );
+
+				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), 32 ), 1, 1, 32, 1, 1, stream );
+			}
+			{
+				ShaderArgument args;
+				args.add( frameBufferU8->data() );
+				args.add( frameBufferF32->data() );
+				args.add( image.width() * image.height() );
+				voxKernel.launch( "renderResolve", args, div_round_up64( image.width() * image.height(), 128 ), 1, 1, 128, 1, 1, stream );
+			}
+
 			oroStream.stop();
 			renderMS = oroStream.getMs();
 
-			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBuffer->data(), frameBuffer->bytes(), stream );
+			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBufferU8->data(), image.width() * image.height() * sizeof( uchar4 ), stream );
 			oroStreamSynchronize( stream );
 		}
 

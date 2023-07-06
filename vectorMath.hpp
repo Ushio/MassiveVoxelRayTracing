@@ -51,6 +51,13 @@ struct float3
 	float y;
 	float z;
 };
+struct alignas(16) float4
+{
+	float x;
+	float y;
+	float z;
+	float w;
+};
 inline float ss_floor( float value )
 {
 	float d;

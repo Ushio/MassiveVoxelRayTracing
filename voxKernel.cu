@@ -502,7 +502,8 @@ extern "C" __global__ void render(
 
 
 extern "C" __global__ void renderPT(
-	uchar4* frameBuffer, int2 resolution,
+	int iteration,
+	float4* frameBuffer, int2 resolution,
 	CameraPinhole pinhole,
 	IntersectorOctreeGPU intersector,
 	DynamicAllocatorGPU<StackElement> stackAllocator,
@@ -520,13 +521,15 @@ extern "C" __global__ void renderPT(
 		const int nspp = 4;
 
 		float3 Lsum = {};
-
-		PCG32 rng;
-
-		rng.setup( 0, pixelIdx );
-
 		for( int spp = 0; spp < nspp; spp++ )
 		{
+			MurmurHash32 hash( 0 );
+			hash.combine( pixelIdx );
+			hash.combine( iteration * nspp + spp );
+
+			PCG32 rng;
+			rng.setup( 0, hash.getHash() );
+
 			float3 ro, rd;
 			pinhole.shoot( &ro, &rd, x, y, uniformf( rng.nextU32() ), uniformf( rng.nextU32() ), resolution.x, resolution.y );
 
@@ -562,14 +565,26 @@ extern "C" __global__ void renderPT(
 			Lsum += L;
 		}
 
-		float3 estimation = Lsum / (float)nspp;
-		uchar4 colorOut = { 
-			255 * INTRIN_POW( ss_min( estimation.x, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
-			255 * INTRIN_POW( ss_min( estimation.y, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
-			255 * INTRIN_POW( ss_min( estimation.z, 1.0f ), 1.0f / 2.2f ) + 0.5f, 
-			255 };
-		frameBuffer[y * resolution.x + x] = colorOut;
+		frameBuffer[y * resolution.x + x].x += Lsum.x;
+		frameBuffer[y * resolution.x + x].y += Lsum.y;
+		frameBuffer[y * resolution.x + x].z += Lsum.z;
+		frameBuffer[y * resolution.x + x].w += (float)nspp;
 	}
 
 	stackAllocator.release( stackHandle );
+}
+
+extern "C" __global__ void renderResolve( uchar4* frameBufferU8, const float4* frameBufferF32, int n )
+{
+	uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+	if( i < n )
+	{
+		float4 value = frameBufferF32[i];
+		uchar4 colorOut = {
+			255 * INTRIN_POW( ss_min( value.x / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
+			255 * INTRIN_POW( ss_min( value.y / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
+			255 * INTRIN_POW( ss_min( value.z / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
+			255 };
+		frameBufferU8[i] = colorOut;
+	}
 }
