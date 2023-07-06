@@ -326,9 +326,6 @@ int main()
 				nTotalInternalNodes += counter;
 			}
 
-			Buffer blockCountersBuffer( sizeof( uint32_t ) * nIteration );
-			oroMemsetD32Async( (oroDeviceptr)blockCountersBuffer.data(), 0, nIteration, stream );
-
 			int lpSize = taskCounters[0];
 			std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
 			
