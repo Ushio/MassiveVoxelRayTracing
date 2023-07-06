@@ -64,11 +64,6 @@ int main()
 	{
 		compilerArgs.push_back( "-g" );
 	}
-	thrs::RadixSort::Config rConfig;
-	rConfig.keyType = thrs::KeyType::U64;
-	rConfig.valueType = thrs::ValueType::U32;
-	thrs::RadixSort radixsort( compilerArgs, rConfig );
-
 	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
 
 	Config config;
