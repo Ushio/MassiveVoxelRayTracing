@@ -10,6 +10,7 @@
 
 #include "IntersectorOctreeGPU.hpp"
 #include "voxCommon.hpp"
+#include "renderCommon.hpp"
 
 #define RENDER_NUMBER_OF_THREAD 64
 
@@ -17,6 +18,8 @@ inline float3 toFloat3( glm::vec3 v )
 {
 	return { v.x, v.y, v.z };
 }
+
+
 
 int main()
 {
@@ -84,6 +87,17 @@ int main()
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
 	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
+
+	Image2DRGBA32 hdri;
+	hdri.loadFromHDR( "brown_photostudio_02_2k.hdr" );
+
+	//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	//{ 
+	//	if( cameraEntity->visible() )
+	//	{
+	//		camera = cameraFromEntity( cameraEntity.get() );
+	//	} 
+	//} );
 
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;

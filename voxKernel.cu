@@ -3,6 +3,7 @@
 
 #include "voxCommon.hpp"
 #include "IntersectorOctreeGPU.hpp"
+#include "renderCommon.hpp"
 
 // method to seperate bits from a given integer 3 positions apart
 __device__ inline uint64_t splitBy3( uint32_t a )

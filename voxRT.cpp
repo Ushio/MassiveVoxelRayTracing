@@ -9,6 +9,7 @@
 #include <set>
 
 #include "voxUtil.hpp"
+#include "renderCommon.hpp"
 
 void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
 {

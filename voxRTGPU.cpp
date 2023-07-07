@@ -10,6 +10,7 @@
 
 #include "IntersectorOctreeGPU.hpp"
 #include "voxCommon.hpp"
+#include "renderCommon.hpp"
 
 inline float3 toFloat3( glm::vec3 v )
 {

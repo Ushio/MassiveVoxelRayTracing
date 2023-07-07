@@ -12,9 +12,14 @@ DEVICE inline float ss_ceil( float value )
 {
 	return ceilf( value );
 }
-
+typedef unsigned long long uint64_t;
+typedef unsigned int uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
 #else
 #include <intrin.h>
+#include <inttypes.h>
+#include <math.h>
 #ifndef DEVICE
 #define DEVICE
 #endif
@@ -106,6 +111,12 @@ template <class T>
 DEVICE inline T ss_abs( T x )
 {
 	return x >= T( 0 ) ? x : -x;
+}
+
+template <class T>
+DEVICE inline T ss_clamp( T x, T a, T b )
+{
+	return ss_min( ss_max( x, a ), b );
 }
 
 DEVICE inline float2 operator-( float2 a, float2 b )
@@ -266,4 +277,13 @@ DEVICE inline float3 closestBarycentricCoordinateOnTriangle( float3 v0, float3 v
 
 	float3 bc = fmaxf( float3{ 0.0f, 0.0f, 0.0f }, { U, V, W } );
 	return bc / ( bc.x + bc.y + bc.z );
+}
+
+DEVICE inline uint32_t div_round_up( uint32_t val, uint32_t divisor )
+{
+	return ( val + divisor - 1 ) / divisor;
+}
+DEVICE inline uint32_t next_multiple( uint32_t val, uint32_t divisor )
+{
+	return div_round_up( val, divisor ) * divisor;
 }
