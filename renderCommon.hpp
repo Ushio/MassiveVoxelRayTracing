@@ -273,7 +273,7 @@ struct HDRI
 		return { c.x, c.y, c.z };
 	}
 #endif
-	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, uint32_t u0, uint32_t u1, uint32_t u2, uint32_t u3 ) const
+	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, float u0, float u1, float u2, float u3 ) const
 	{
 		uint32_t* sat = m_sat;
 
@@ -312,7 +312,7 @@ struct HDRI
 		j = m_width - 1;
 		do {
 			int mid = ( i + j ) / 2;
-			uint32_t s = getPrefixSumExclusiveH( sat, mid );
+			float s = (float)getPrefixSumExclusiveH( sat, mid ) / (float)0xFFFFFFFFu;
 			if( u0 < s )
 			{
 				j = mid;
@@ -327,14 +327,13 @@ struct HDRI
 
 		// H prefix sum range is not 0 to 0xFFFFFFFF need to adjust.
 		uint32_t vol = getPrefixSumExclusiveH( sat, X + 1 ) - getPrefixSumExclusiveH( sat, X );
-		u1 = (uint64_t)u1 * vol / 0xFFFFFFFFllu;
 
 		i = 0;
 		j = m_height - 1;
 		do
 		{
 			int mid = ( i + j ) / 2;
-			uint32_t s = getPrefixSumExclusiveV( sat, X, mid );
+			float s = (float)getPrefixSumExclusiveV( sat, X, mid ) / (float)vol;
 			if( u1 < s )
 			{
 				j = mid;
@@ -360,9 +359,9 @@ struct HDRI
 		float dW = dPhi;
 		float sr = dH * dW;
 		
-		float sY = mix( INTRIN_COS( theta ), INTRIN_COS( theta + dTheta ), uniformf( u2 ) );
+		float sY = mix( INTRIN_COS( theta ), INTRIN_COS( theta + dTheta ), u2 );
 
-		float phi = dPhi * ( (float)X + uniformf( u3 ) ) + PI;
+		float phi = dPhi * ( (float)X + u3 ) + PI;
 		float sX = INTRIN_COS( phi );
 		float sZ = INTRIN_SIN( phi );
 

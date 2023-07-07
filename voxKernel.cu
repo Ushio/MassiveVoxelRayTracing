@@ -704,10 +704,14 @@ extern "C" __global__ void renderPT(
 				float3 hitP = ro + rd * t;
 
 				{ // Explicit
+					float u0 = uniformf( rng.nextU32() );
+					float u1 = uniformf( rng.nextU32() );
+					float u2 = uniformf( rng.nextU32() );
+					float u3 = uniformf( rng.nextU32() );
 					float3 dir;
 					float3 emissive;
 					float p;
-					hdri.importanceSample( &dir, &emissive, &p, hitN, true, rng.nextU32(), rng.nextU32(), rng.nextU32(), rng.nextU32() );
+					hdri.importanceSample( &dir, &emissive, &p, hitN, true, u0, u1, u2, u3 );
 
 					// no self intersection
 					float t = MAX_FLOAT;
