@@ -73,8 +73,8 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 			for( int j = 0; j < 8; j++ )
 			{
 				node.children[j] = -1;
+				node.nVoxelsPSum[j] = 0;
 			}
-			node.numberOfVoxels = 0;
 
 			// set child
 			for( int j = group.beg; j < group.end; j++ )
@@ -82,7 +82,16 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 				uint32_t space = curTasks[j].morton & 0x7;
 				node.mask |= ( 1 << space ) & 0xFF;
 				node.children[space] = curTasks[j].child;
-				node.numberOfVoxels += curTasks[j].numberOfVoxels;
+				node.nVoxelsPSum[space] = curTasks[j].numberOfVoxels;
+			}
+
+			// prefix scan exclusive
+			int numberOfVoxels = 0;
+			for( int j = 0; j < 8; j++ )
+			{
+				uint32_t c = node.nVoxelsPSum[j];
+				node.nVoxelsPSum[j] = numberOfVoxels;
+				numberOfVoxels += c;
 			}
 
 			uint32_t nodeIndex;
@@ -102,7 +111,7 @@ inline void buildOctreeDAGReference( std::vector<OctreeNode>* nodes, const std::
 			OctreeTask nextTask;
 			nextTask.morton = curTasks[group.beg].getMortonParent();
 			nextTask.child = nodeIndex;
-			nextTask.numberOfVoxels = node.numberOfVoxels;
+			nextTask.numberOfVoxels = numberOfVoxels;
 			nextTasks.push_back( nextTask );
 		}
 

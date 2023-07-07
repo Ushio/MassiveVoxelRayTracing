@@ -2,6 +2,8 @@
 
 #include "vectorMath.hpp"
 
+#define ENABLE_GPU_DAG 1
+
 #if defined( __CUDACC__ ) || defined( __HIPCC__ )
 #ifndef DEVICE
 #define DEVICE __device__
@@ -102,8 +104,8 @@ DEVICE inline uint32_t hashCombine( uint32_t a, uint32_t b, uint32_t c, uint32_t
 struct OctreeNode
 {
 	uint8_t mask;
-	uint32_t numberOfVoxels;
 	uint32_t children[8];
+	uint32_t nVoxelsPSum[8];
 
 	DEVICE uint32_t getHash() const
 	{
@@ -306,14 +308,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 				cur.S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
 				cur.childMask = 0xFFFFFFFF;
 
-				uint32_t nSkipped = 0;
-				for( int i = 0; i < childIndex; i++ )
-				{
-					if( node.mask & ( 0x1 << i ) )
-					{
-						nSkipped += node.children[i] == -1 ? 1 : nodes[node.children[i]].numberOfVoxels;
-					}
-				}
+				uint32_t nSkipped = node.nVoxelsPSum[childIndex];
 				cur.nVoxelSkipped += nSkipped;
 
 				goto next;

@@ -229,7 +229,6 @@ int main()
 				args.add( stackAllocator );
 				args.add( hdri );
 				args.add( pmj );
-				args.add( showVertexColor ? 1 : 0 );
 
 				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
 			}

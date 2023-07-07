@@ -326,9 +326,11 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		uint8_t mask = 0;
 		uint32_t numberOfVoxels = 0;
 		uint32_t children[8];
+		uint32_t nVoxelsPSum[8];
 		for( int j = 0; j < 8; j++ )
 		{
 			children[j] = -1;
+			nVoxelsPSum[j] = 0;
 		}
 
 		if( d != -1 ) // voted
@@ -340,25 +342,34 @@ extern "C" __global__ void bottomUpOctreeBuild(
 				uint32_t space = inputOctreeTasks[j].morton & 0x7;
 				mask |= ( 1 << space ) & 0xFF;
 				children[space] = inputOctreeTasks[j].child;
-				numberOfVoxels += inputOctreeTasks[j].numberOfVoxels;
+				nVoxelsPSum[space] = inputOctreeTasks[j].numberOfVoxels;
 			}
 
-			// Naive. Be careful for allocations
-			//uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
-			//outputOctreeNodes[nodeIndex].mask = mask;
-			//outputOctreeNodes[nodeIndex].numberOfVoxels = numberOfVoxels;
-			//for( int j = 0; j < 8; j++ )
-			//{
-			//	outputOctreeNodes[nodeIndex].children[j] = children[j];
-			//}
+			// prefix scan exclusive
+			for( int j = 0; j < 8; j++ )
+			{
+				uint32_t c = nVoxelsPSum[j];
+				nVoxelsPSum[j] = numberOfVoxels;
+				numberOfVoxels += c;
+			}
+			
+			// Non DAG
+#if !defined( ENABLE_GPU_DAG )
+			uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
+			outputOctreeNodes[nodeIndex].mask = mask;
+			for( int j = 0; j < 8; j++ )
+			{
+				outputOctreeNodes[nodeIndex].children[j] = children[j];
+				outputOctreeNodes[nodeIndex].nVoxelsPSum[j] = nVoxelsPSum[j];
+			}
 
-			//outputOctreeTasks[d].morton = mortonParent;
-			//outputOctreeTasks[d].child = nodeIndex;
-			//outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
-
-			//atomicInc( nOutputTasks, 0xFFFFFFFF );
+			outputOctreeTasks[d].morton = mortonParent;
+			outputOctreeTasks[d].child = nodeIndex;
+			outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
+#endif
 		}
 
+#if defined( ENABLE_GPU_DAG )
 		uint32_t nodeIndex = -1;
 
 		MurmurHash32 h( 0 );
@@ -389,10 +400,10 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			{
 				nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
 				outputOctreeNodes[nodeIndex].mask = mask;
-				outputOctreeNodes[nodeIndex].numberOfVoxels = numberOfVoxels;
 				for( int j = 0; j < 8; j++ )
 				{
 					outputOctreeNodes[nodeIndex].children[j] = children[j];
+					outputOctreeNodes[nodeIndex].nVoxelsPSum[j] = nVoxelsPSum[j];
 				}
 
 				__threadfence();
@@ -435,6 +446,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			outputOctreeTasks[d].child = nodeIndex;
 			outputOctreeTasks[d].numberOfVoxels = numberOfVoxels;
 		}
+#endif
 	}
 
     if( iteration % 2 == 0 )
@@ -637,8 +649,7 @@ extern "C" __global__ void renderPT(
 	IntersectorOctreeGPU intersector,
 	DynamicAllocatorGPU<StackElement> stackAllocator,
 	HDRI hdri,
-	PMJSampler pmj,
-	int showVertexColor )
+	PMJSampler pmj )
 {
 	uint32_t stackHandle;
 	StackElement* stack = stackAllocator.acquire( &stackHandle );

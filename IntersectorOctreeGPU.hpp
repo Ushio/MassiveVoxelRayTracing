@@ -170,7 +170,11 @@ struct IntersectorOctreeGPU
 		int nTotalInternalNodes = 0;
 		for( int i = 0; i < taskCounters.size(); i++ )
 		{
+#if defined( ENABLE_GPU_DAG )
 			nTotalInternalNodes += i == 0 ? 256 /* DAG */ : taskCounters[i];
+#else
+			nTotalInternalNodes += taskCounters[i];
+#endif
 		}
 
 		int lpSize = taskCounters[0];
