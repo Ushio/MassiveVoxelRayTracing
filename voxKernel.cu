@@ -508,6 +508,7 @@ extern "C" __global__ void renderPT(
 	CameraPinhole pinhole,
 	IntersectorOctreeGPU intersector,
 	DynamicAllocatorGPU<StackElement> stackAllocator,
+	HDRI hdri,
 	int showVertexColor )
 {
 	uint32_t stackHandle;
@@ -563,8 +564,9 @@ extern "C" __global__ void renderPT(
 
 				if( t == MAX_FLOAT )
 				{
-					float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
-					float3 env = { I, I, I };
+					//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
+					//float3 env = { I, I, I };
+					float3 env = hdri.sampleNearest( rd );
 					L += T * env;
 					break;
 				}

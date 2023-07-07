@@ -88,16 +88,13 @@ int main()
 	ar.open( GetDataPath( input ), errorMsg );
 	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
 
-	Image2DRGBA32 hdri;
-	hdri.loadFromHDR( "brown_photostudio_02_2k.hdr" );
-
-	//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
-	//{ 
-	//	if( cameraEntity->visible() )
-	//	{
-	//		camera = cameraFromEntity( cameraEntity.get() );
-	//	} 
-	//} );
+	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	{ 
+		if( cameraEntity->visible() )
+		{
+			camera = cameraFromEntity( cameraEntity.get() );
+		} 
+	} );
 
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;
@@ -112,6 +109,11 @@ int main()
 	IntersectorOctreeGPU intersectorOctreeGPU;
 	DynamicAllocatorGPU<StackElement> stackAllocator;
 	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 32 /* nElementPerThread */, stream );
+
+	Image2DRGBA32 hdriSrc;
+	hdriSrc.loadFromHDR( "brown_photostudio_02_2k.hdr" );
+	HDRI hdri;
+	hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), stream );
 
 	int iteration = 0;
 	std::unique_ptr<Buffer> frameBufferU8;
@@ -215,6 +217,7 @@ int main()
 				args.add( pinhole );
 				args.add( intersectorOctreeGPU );
 				args.add( stackAllocator );
+				args.add( hdri );
 				args.add( showVertexColor ? 1 : 0 );
 
 				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
@@ -279,6 +282,11 @@ int main()
 		ImGui::Text( "render(ms) = %f", renderMS );
 		ImGui::Text( "octree   = %lld byte", intersectorOctreeGPU.m_numberOfNodes * sizeof( OctreeNode ) );
 		
+		if( ImGui::Button( "Save Image" ) )
+		{
+			image.saveAsPng( "render.png" );
+		}
+
 		ImGui::End();
 
 		EndImGui();

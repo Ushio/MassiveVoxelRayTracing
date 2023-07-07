@@ -140,7 +140,7 @@ struct HDRI
 		{
 			oroFree( (oroDeviceptr)m_pixels );
 		}
-		uint64_t bytes = sizeof( float4 ) * 4 * m_width * m_height;
+		uint64_t bytes = sizeof( float4 ) * m_width * m_height;
 		oroMalloc( (oroDeviceptr*)&m_pixels, bytes );
 		oroMemcpyHtoDAsync( (oroDeviceptr)m_pixels, ptr, bytes, stream );
 		oroStreamSynchronize( stream );
@@ -154,13 +154,14 @@ struct HDRI
 		}
 	}
 #else
-	DEVICE float4 sampleNearest( float3 direction ) const
+	DEVICE float3 sampleNearest( float3 direction ) const
 	{
 		float2 uv = getSpherical( direction );
 		int x = (int)ss_clamp( uv.x * m_width, 0.0f, (float)( m_width - 1.0f ) );
-		int y = (int)ss_clamp( uv.x * m_height, 0.0f, (float)( m_width - 1.0f ) );
+		int y = (int)ss_clamp( uv.y * m_height, 0.0f, (float)( m_height - 1.0f ) );
 		uint64_t index = (uint64_t)y * m_width + x;
-		return m_pixels[index];
+		float4 c = m_pixels[index];
+		return { c.x, c.y, c.z };
 	}
 #endif
 

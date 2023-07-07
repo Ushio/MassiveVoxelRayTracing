@@ -102,6 +102,9 @@ project "voxRT"
 
     includePrLib()
 
+    -- Orochi ( include only )
+    includedirs { "libs/orochi" }
+
     -- embree 4
     libdirs { "libs/prlib/libs/embree4/lib" }
     includedirs { "libs/prlib/libs/embree4/include" }
