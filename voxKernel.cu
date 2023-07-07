@@ -501,7 +501,7 @@ extern "C" __global__ void render(
 	}
 }
 
-extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double *sat )
+extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double *sat, int cosWeighted, float3 axis )
 {
 	uint32_t pixelX = blockIdx.x * blockDim.x + threadIdx.x;
 	uint32_t pixelY = blockIdx.y * blockDim.y + threadIdx.y;
@@ -512,15 +512,34 @@ extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resol
 
 	uint32_t pixelIdx = pixelY * resolution.x + pixelX;
 	float dTheta = PI / (float)resolution.y;
+	float dPhi = 2.0f * PI / (float)resolution.x;
 	float theta = pixelY * dTheta;
 
 	// dH = cos( theta ) - cos( theta + dTheta )
 	//    = 2 sin( dTheta / 2 ) sin( dTheta / 2 + theta )
 	float dH = 2.0f * INTRIN_SIN( dTheta * 0.5f ) * INTRIN_SIN( dTheta * 0.5f + theta );
-	float dW = 2.0f * PI / (float)resolution.x;
+	float dW = dPhi;
 	float sr = dH * dW;
 	float4 color = pixels[pixelIdx];
-	sat[pixelIdx] = ( 0.2126f * color.x + 0.7152 * color.y + 0.0722 * color.z ) * sr;
+
+	float w = 1.0f;
+	if( cosWeighted )
+	{
+		float sY = mix( INTRIN_COS( theta ), INTRIN_COS( theta + dTheta ), 0.5f );
+		float phi = dPhi * ( (float)pixelX + 0.5f ) + PI;
+		float sX = INTRIN_COS( phi );
+		float sZ = INTRIN_SIN( phi );
+
+		float sinTheta = INTRIN_SQRT( ss_max( 1.0f - sY * sY, 0.0f ) );
+		float3 dirCenter = {
+			sX * sinTheta,
+			sY,
+			sZ * sinTheta,
+		};
+		w = ss_max( dot( axis, dirCenter ), 0.0f );
+	}
+
+	sat[pixelIdx] = ( 0.2126f * color.x + 0.7152 * color.y + 0.0722 * color.z ) * sr * w;
 }
 
 template <class T, int NThreads>

@@ -159,6 +159,8 @@ struct HDRI
 			args.add( m_pixels );
 			args.add<int2>( { m_width, m_height } );
 			args.add( satF64.data() );
+			args.add( 0 );
+			args.add( float3{ 0.0f, 0.0f, 0.0f } );
 			voxKernel->launch( "HDRIstoreImportance", args, 
 				div_round_up64( m_width, 8 ), div_round_up64( m_height, 8 ), 1, 
 				8, 8, 1, stream );
@@ -256,18 +258,19 @@ struct HDRI
 		float pSelection = ( float )getCount( X, Y ) / (float)0xFFFFFFFF;
 
 		float dTheta = PI / (float)m_height;
+		float dPhi = 2.0f * PI / (float)m_width;
+
 		float theta = Y * dTheta;
 
 		// dH = cos( theta ) - cos( theta + dTheta )
 		//    = 2 sin( dTheta / 2 ) sin( dTheta / 2 + theta )
 		float dH = 2.0f * INTRIN_SIN( dTheta * 0.5f ) * INTRIN_SIN( dTheta * 0.5f + theta );
-		float dW = 2.0f * PI / (float)m_width;
+		float dW = dPhi;
 		float sr = dH * dW;
 		
 		float sY = mix( INTRIN_COS( theta ), INTRIN_COS( theta + dTheta ), uniformf( u2 ) );
 
-		float dPhi = PI / (float)m_height;
-		float phi = mix( dPhi * X, dPhi * ( X + 1 ), uniformf( u3 ) ) + PI;
+		float phi = dPhi * ( (float)X + uniformf( u3 ) ) + PI;
 		float sX = INTRIN_COS( phi );
 		float sZ = INTRIN_SIN( phi );
 
