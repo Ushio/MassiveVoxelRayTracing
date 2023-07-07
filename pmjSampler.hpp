@@ -155,7 +155,7 @@ public:
 	}
 #endif
 
-	DEVICE float2 sample( uint32_t sampleIdx, uint32_t dimension, uint32_t stream )
+	DEVICE float2 sample2d( uint32_t sampleIdx, uint32_t dimension, uint32_t stream )
 	{
 		// Shuffling
 		sampleIdx = nested_uniform_scramble( sampleIdx, hashCombine( stream, dimension, 31082745 ) ) & ( LENGTH - 1 );

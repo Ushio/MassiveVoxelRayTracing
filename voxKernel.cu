@@ -678,17 +678,15 @@ extern "C" __global__ void renderPT(
 
 #if defined( USE_PMJ )
 			int dim = 0;
+#define SAMPLE_2D() pmj.sample2d( spp, dim++, stream )
 #else
 			hash.combine( spp );
 			PCG32 rng;
 			rng.setup( 0, hash.getHash() );
+#define SAMPLE_2D() float2{ uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) }
 #endif
 
-#if defined( USE_PMJ )
-			float2 cam_u01 = pmj.sample( spp, dim++, stream );
-#else
-			float2 cam_u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
-#endif
+			float2 cam_u01 = SAMPLE_2D();
 			float3 ro, rd;
 			pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
 
@@ -718,13 +716,9 @@ extern "C" __global__ void renderPT(
 				float3 hitP = ro + rd * t;
 
 				{ // Explicit
-#if defined( USE_PMJ )
-					float2 u01 = pmj.sample( spp, dim++, stream );
-					float2 u23 = pmj.sample( spp, dim++, stream );
-#else
-					float2 u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
-					float2 u23 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
-#endif
+					float2 u01 = SAMPLE_2D();
+					float2 u23 = SAMPLE_2D();
+
 					float3 dir;
 					float3 emissive;
 					float p;
@@ -743,16 +737,14 @@ extern "C" __global__ void renderPT(
 
 				T *= R;
 			
-#if defined( USE_PMJ )
-				float2 u01 = pmj.sample( spp, dim++, stream );
-#else
-				float2 u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
-#endif
+				float2 u01 = SAMPLE_2D();
 				float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
 				ro = hitP; // no self intersection
 				rd = dir;
 			}
+
+#undef SAMPLE_2D
 
 			atomicAdd( &localPixelValueXs[localPixel], L.x );
 			atomicAdd( &localPixelValueYs[localPixel], L.y );
