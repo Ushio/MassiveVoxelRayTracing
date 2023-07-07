@@ -87,7 +87,7 @@ int main()
 
 	bool sixSeparating = true;
 	int gridRes = 512;
-	bool drawModel = true;
+	bool drawModel = false;
 	bool drawWire = false;
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;

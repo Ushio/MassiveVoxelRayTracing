@@ -155,6 +155,19 @@ struct OctreeNode
 #define LP_LOCK         0xFFFFFFFF
 #define LP_VALUE_BIT    0x7FFFFFFF
 
+#define SMALL_STACK 1
+#if defined( SMALL_STACK )
+struct StackElement
+{
+	uint32_t nodeIndex;
+	float tx0;
+	float ty0;
+	float tz0;
+	float scale;
+	uint32_t childMask;
+	uint32_t nVoxelSkipped;
+};
+#else
 struct StackElement
 {
 	uint32_t nodeIndex;
@@ -170,6 +183,7 @@ struct StackElement
 	uint32_t childMask;
 	uint32_t nVoxelSkipped;
 };
+#endif
 
 DEVICE void octreeTraverse_EfficientParametric(
 	const OctreeNode* nodes, uint32_t nodeIndex,
@@ -219,6 +233,133 @@ DEVICE void octreeTraverse_EfficientParametric(
 	{
 		return;
 	}
+#if defined( SMALL_STACK )
+	auto copyStackElement = []( StackElement& dst, const StackElement& src )
+	{
+		dst.nodeIndex = src.nodeIndex;
+		dst.tx0 = src.tx0;
+		dst.ty0 = src.ty0;
+		dst.tz0 = src.tz0;
+
+		dst.scale = src.scale;
+
+		dst.childMask = src.childMask;
+		dst.nVoxelSkipped = src.nVoxelSkipped;
+	};
+	int sp = 0;
+	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 1.0f, 0xFFFFFFFF, 0 };
+
+	float3 dt = t1 - t0;
+
+	for( ;; )
+	{
+	next:
+		float tx1 = cur.tx0 + dt.x * cur.scale;
+		float ty1 = cur.ty0 + dt.y * cur.scale;
+		float tz1 = cur.tz0 + dt.z * cur.scale;
+
+		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind. Otherwise, there are potential hits.
+		if( minElement( tx1, ty1, tz1 ) < 0.0f )
+		{
+			goto pop;
+		}
+
+		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
+
+		if( cur.nodeIndex == -1 )
+		{
+			if( 0.0f < S_lmax ) // positive hit point only
+			{
+				*t = S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
+				*nMajor =
+					S_lmax == cur.tx0 ? 1 : ( S_lmax == cur.ty0 ? 2 : 0 );
+
+				*vIndex = cur.nVoxelSkipped;
+				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
+				break;
+			}
+			goto pop;
+		}
+
+		float txM = 0.5f * ( cur.tx0 + tx1 );
+		float tyM = 0.5f * ( cur.ty0 + ty1 );
+		float tzM = 0.5f * ( cur.tz0 + tz1 );
+
+		if( cur.childMask == 0xFFFFFFFF )
+		{
+			cur.childMask =
+				( txM < S_lmax ? 1u : 0u ) |
+				( tyM < S_lmax ? 2u : 0u ) |
+				( tzM < S_lmax ? 4u : 0u );
+		}
+
+		const OctreeNode& node = nodes[cur.nodeIndex];
+
+		float x1 = ( cur.childMask & 1u ) ? tx1 : txM;
+		float y1 = ( cur.childMask & 2u ) ? ty1 : tyM;
+		float z1 = ( cur.childMask & 4u ) ? tz1 : tzM;
+
+		for( ;; )
+		{
+			// find minimum( x1, y1, z1 ) for next hit
+			uint32_t mv =
+				x1 < y1 ? ( x1 < z1 ? 1u : 4u ) : ( y1 < z1 ? 2u : 4u );
+
+			bool hasNext = ( cur.childMask & mv ) == 0;
+			uint32_t childIndex = cur.childMask ^ vMask;
+			uint32_t currentChildMask = cur.childMask;
+			cur.childMask |= mv;
+
+			if( node.mask & ( 0x1 << childIndex ) )
+			{
+				if( hasNext )
+				{
+					copyStackElement( stack[sp++], cur );
+				}
+				cur.nodeIndex = node.children[childIndex];
+				cur.tx0 = ( currentChildMask & 1u ) ? txM : cur.tx0;
+				cur.ty0 = ( currentChildMask & 2u ) ? tyM : cur.ty0;
+				cur.tz0 = ( currentChildMask & 4u ) ? tzM : cur.tz0;
+				cur.scale *= 0.5f;
+
+				cur.childMask = 0xFFFFFFFF;
+
+				uint32_t nSkipped = node.nVoxelsPSum[childIndex];
+				cur.nVoxelSkipped += nSkipped;
+
+				goto next;
+			}
+
+			if( hasNext == false )
+			{
+				break;
+			}
+			switch( mv )
+			{
+			case 1:
+				x1 = tx1;
+				break;
+			case 2:
+				y1 = ty1;
+				break;
+			case 4:
+				z1 = tz1;
+				break;
+			}
+		}
+
+	pop:
+		if( sp )
+		{
+			copyStackElement( cur, stack[--sp] );
+		}
+		else
+		{
+			break;
+		}
+	}
+
+#else
 
 	auto copyStackElement = []( StackElement& dst, const StackElement& src )
 	{
@@ -342,6 +483,8 @@ DEVICE void octreeTraverse_EfficientParametric(
 			break;
 		}
 	}
+
+#endif
 }
 
 template <class T>
