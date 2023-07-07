@@ -60,7 +60,8 @@ int main()
 
 	if( isNvidia )
 	{
-		compilerArgs.push_back( "--generate-line-info" );
+		// compilerArgs.push_back( "-G" );
+		 compilerArgs.push_back( "--generate-line-info" );
 
 		// ITS enabled
 		compilerArgs.push_back( "--gpu-architecture=compute_70" );
@@ -112,8 +113,10 @@ int main()
 
 	Image2DRGBA32 hdriSrc;
 	hdriSrc.loadFromHDR( "brown_photostudio_02_2k.hdr" );
+	// hdriSrc.loadFromHDR( "modern_buildings_2_2k.hdr" );
+	
 	HDRI hdri;
-	hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), stream );
+	hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), &voxKernel, stream );
 
 	int iteration = 0;
 	std::unique_ptr<Buffer> frameBufferU8;
@@ -235,6 +238,11 @@ int main()
 
 			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBufferU8->data(), image.width() * image.height() * sizeof( uchar4 ), stream );
 			oroStreamSynchronize( stream );
+
+			if( iteration == 16 )
+			{
+				image.saveAsPng( "render_first.png" );
+			}
 		}
 
 		if( bgTexture == nullptr )

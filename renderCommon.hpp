@@ -7,6 +7,7 @@
 #else
 #include <glm/glm.hpp>
 #include "Orochi/Orochi.h"
+#include "hipUtil.hpp"
 #endif
 
 class CameraPinhole
@@ -132,7 +133,7 @@ DEVICE inline float2 getSpherical( float3 n )
 struct HDRI
 {
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
-	void load( float* ptr, int width, int height, oroStream stream )
+	void load( float* ptr, int width, int height, Shader* voxKernel, oroStream stream )
 	{
 		m_width = width;
 		m_height = height;
@@ -140,9 +141,49 @@ struct HDRI
 		{
 			oroFree( (oroDeviceptr)m_pixels );
 		}
-		uint64_t bytes = sizeof( float4 ) * m_width * m_height;
-		oroMalloc( (oroDeviceptr*)&m_pixels, bytes );
-		oroMemcpyHtoDAsync( (oroDeviceptr)m_pixels, ptr, bytes, stream );
+		if( m_sat )
+		{
+			oroFree( (oroDeviceptr)m_sat );
+		}
+
+		uint64_t pixelBytes = sizeof( float4 ) * m_width * m_height;
+		oroMalloc( (oroDeviceptr*)&m_pixels, pixelBytes );
+		oroMemcpyHtoDAsync( (oroDeviceptr)m_pixels, ptr, pixelBytes, stream );
+
+		uint64_t satBytes = sizeof( uint32_t ) * m_width * m_height;
+		oroMalloc( (oroDeviceptr*)&m_sat, satBytes );
+
+		Buffer satF64( sizeof( double ) * m_width * m_height );
+		{
+			ShaderArgument args;
+			args.add( m_pixels );
+			args.add<int2>( { m_width, m_height } );
+			args.add( satF64.data() );
+			voxKernel->launch( "HDRIstoreImportance", args, 
+				div_round_up64( m_width, 8 ), div_round_up64( m_height, 8 ), 1, 
+				8, 8, 1, stream );
+		}
+
+#define SAT_BLOCK_SIZE 512
+		{
+			ShaderArgument args;
+			args.add<int2>( { m_width, m_height } );
+			args.add( satF64.data() );
+			voxKernel->launch( "buildSATh", args, m_height, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
+			voxKernel->launch( "buildSATv", args, m_width, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
+		}
+
+		{
+			ShaderArgument args;
+			args.add( m_sat );
+			args.add( satF64.data() );
+			args.add( m_width * m_height );
+			voxKernel->launch( "buildSAT2u32", args, div_round_up64( m_width * m_height, 64 ), 1, 1, 64, 1, 1, stream );
+		}
+
+		std::vector<uint32_t> sat( m_width * m_height );
+		oroMemcpyDtoHAsync( sat.data(), (oroDeviceptr)m_sat, m_width * m_height * sizeof( uint32_t ), stream );
+
 		oroStreamSynchronize( stream );
 	}
 	void cleanUp()
@@ -151,6 +192,11 @@ struct HDRI
 		{
 			oroFree( (oroDeviceptr)m_pixels );
 			m_pixels = 0;
+		}
+		if( m_sat )
+		{
+			oroFree( (oroDeviceptr)m_sat );
+			m_sat = 0;
 		}
 	}
 #else
@@ -164,8 +210,111 @@ struct HDRI
 		return { c.x, c.y, c.z };
 	}
 #endif
+	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, uint32_t u0, uint32_t u1, uint32_t u2, uint32_t u3 ) const
+	{
+		int i, j;
 
-	float4* m_pixels;
-	int m_width;
-	int m_height;
+		i = 0;
+		j = m_width - 1;
+		do {
+			int mid = ( i + j ) / 2;
+			uint32_t s = getPrefixSumExclusiveH( mid );
+			if( u0 < s )
+			{
+				j = mid;
+			}
+			else
+			{
+				i = mid; // include mid when u0 == s
+			}
+		} while( i + 1 < j );
+
+		uint32_t X = i;
+
+		// H prefix sum range is not 0 to 0xFFFFFFFF need to adjust.
+		uint32_t vol = getPrefixSumExclusiveH( X + 1 ) - getPrefixSumExclusiveH( X );
+		u1 = (uint64_t)u1 * vol / 0xFFFFFFFFllu;
+
+		i = 0;
+		j = m_height - 1;
+		do
+		{
+			int mid = ( i + j ) / 2;
+			uint32_t s = getPrefixSumExclusiveV( X, mid );
+			if( u1 < s )
+			{
+				j = mid;
+			}
+			else
+			{
+				i = mid; // include mid when u0 == s
+			}
+		} while( i + 1 < j );
+
+		uint32_t Y = i;
+
+		float pSelection = ( float )getCount( X, Y ) / (float)0xFFFFFFFF;
+
+		float dTheta = PI / (float)m_height;
+		float theta = Y * dTheta;
+
+		// dH = cos( theta ) - cos( theta + dTheta )
+		//    = 2 sin( dTheta / 2 ) sin( dTheta / 2 + theta )
+		float dH = 2.0f * INTRIN_SIN( dTheta * 0.5f ) * INTRIN_SIN( dTheta * 0.5f + theta );
+		float dW = 2.0f * PI / (float)m_width;
+		float sr = dH * dW;
+		
+		float sY = mix( INTRIN_COS( theta ), INTRIN_COS( theta + dTheta ), uniformf( u2 ) );
+
+		float dPhi = PI / (float)m_height;
+		float phi = mix( dPhi * X, dPhi * ( X + 1 ), uniformf( u3 ) ) + PI;
+		float sX = INTRIN_COS( phi );
+		float sZ = INTRIN_SIN( phi );
+
+		float sinTheta = INTRIN_SQRT( ss_max( 1.0f - sY * sY, 0.0f ) );
+		*direction = {
+			sX * sinTheta,
+			sY,
+			sZ * sinTheta,
+		};
+		*srPDF = pSelection / sr;
+
+		float4 color = m_pixels[Y * m_width + X];
+		*L = { color.x, color.y, color.z };
+	}
+
+	DEVICE uint32_t getPrefixSumExclusiveH( uint32_t x ) const
+	{
+		if( x <= 0 )
+		{
+			return 0;
+		}
+		return m_sat[ m_width * ( m_height - 1 ) + x - 1 ];
+	}
+	DEVICE uint32_t getPrefixSumExclusiveV( uint32_t x, uint32_t y ) const
+	{
+		if( y <= 0 )
+		{
+			return 0;
+		}
+
+		uint32_t s0 = x <= 0 ? 0 : m_sat[m_width * ( y - 1 ) + ( x - 1 )];
+		uint32_t s1 = m_sat[m_width * ( y - 1 ) + x];
+		return s1 - s0;
+	}
+	DEVICE uint32_t getCount( uint32_t x, uint32_t y ) const
+	{
+		// AB
+		// CD
+		uint32_t a = ( x <= 0 || y <= 0 ) ? 0 : m_sat[m_width * ( y - 1 ) + ( x - 1 )];
+		uint32_t b = ( y <= 0 ) ? 0 : m_sat[m_width * ( y - 1 ) + x];
+		uint32_t c = ( x <= 0 ) ? 0 : m_sat[m_width * y + ( x - 1 )];
+		uint32_t d = m_sat[m_width * y + x];
+		return ( d - b ) + ( a - c );
+	}
+
+	float4* m_pixels = 0;
+	uint32_t* m_sat = 0;
+	int m_width = 0;
+	int m_height = 0;
 };

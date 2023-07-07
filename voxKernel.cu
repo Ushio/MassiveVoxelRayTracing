@@ -501,6 +501,112 @@ extern "C" __global__ void render(
 	}
 }
 
+extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double *sat )
+{
+	uint32_t pixelX = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t pixelY = blockIdx.y * blockDim.y + threadIdx.y;
+	if( resolution.x <= pixelX || resolution.y <= pixelY )
+	{
+		return;
+	}
+
+	uint32_t pixelIdx = pixelY * resolution.x + pixelX;
+	float dTheta = PI / (float)resolution.y;
+	float theta = pixelY * dTheta;
+
+	// dH = cos( theta ) - cos( theta + dTheta )
+	//    = 2 sin( dTheta / 2 ) sin( dTheta / 2 + theta )
+	float dH = 2.0f * INTRIN_SIN( dTheta * 0.5f ) * INTRIN_SIN( dTheta * 0.5f + theta );
+	float dW = 2.0f * PI / (float)resolution.x;
+	float sr = dH * dW;
+	float4 color = pixels[pixelIdx];
+	sat[pixelIdx] = ( 0.2126f * color.x + 0.7152 * color.y + 0.0722 * color.z ) * sr;
+}
+
+template <class T, int NThreads>
+__device__ inline T prefixSumInclusive( T prefix, T* sMemIO )
+{
+	for( uint32_t offset = 1; offset < NThreads; offset <<= 1 )
+	{
+		T x = sMemIO[threadIdx.x];
+
+		if( offset <= threadIdx.x )
+		{
+			x += sMemIO[threadIdx.x - offset];
+		}
+
+		__syncthreads();
+
+		sMemIO[threadIdx.x] = x;
+
+		__syncthreads();
+	}
+	T sum = sMemIO[NThreads - 1];
+
+	__syncthreads();
+
+	sMemIO[threadIdx.x] += prefix;
+
+	__syncthreads();
+
+	return sum;
+}
+
+#define SAT_BLOCK_SIZE 512
+
+extern "C" __global__ void buildSATh( int2 resolution, double* sat )
+{
+	__shared__ double s_mem[SAT_BLOCK_SIZE];
+	int Y = blockIdx.x;
+
+	double prefix = 0.0;
+	for( int i = 0; i < resolution.x; i += SAT_BLOCK_SIZE )
+	{
+		int X = i + threadIdx.x;
+		s_mem[threadIdx.x] = X < resolution.x ? sat[Y * resolution.x + X] : 0.0;
+
+		__syncthreads();
+
+		prefix += prefixSumInclusive<double, SAT_BLOCK_SIZE>( prefix, s_mem );
+
+		if( X < resolution.x )
+		{
+			sat[Y * resolution.x + X] = s_mem[threadIdx.x];
+		}
+	}
+}
+extern "C" __global__ void buildSATv( int2 resolution, double* sat )
+{
+	__shared__ double s_mem[SAT_BLOCK_SIZE];
+	int X = blockIdx.x;
+
+	double prefix = 0.0;
+	for( int i = 0; i < resolution.y; i += SAT_BLOCK_SIZE )
+	{
+		int Y = i + threadIdx.x;
+		s_mem[threadIdx.x] = Y < resolution.y ? sat[Y * resolution.x + X] : 0.0;
+
+		__syncthreads();
+
+		prefix += prefixSumInclusive<double, SAT_BLOCK_SIZE>( prefix, s_mem );
+
+		if( Y < resolution.y )
+		{
+			sat[Y * resolution.x + X] = s_mem[threadIdx.x];
+		}
+	}
+}
+
+extern "C" __global__ void buildSAT2u32( uint32_t* satU32, double* satF64, int n )
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	double sum = satF64[n - 1];
+	if( i < n )
+	{
+		satU32[i] = (uint32_t)( satF64[i] / ( sum ) * (double)0xFFFFFFFFu );
+	}
+}
+
 #define RENDER_NUMBER_OF_THREAD 64
 extern "C" __global__ void renderPT(
 	int iteration,
@@ -566,20 +672,41 @@ extern "C" __global__ void renderPT(
 				{
 					//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
 					//float3 env = { I, I, I };
-					float3 env = hdri.sampleNearest( rd );
-					L += T * env;
+					if (depth == 0)
+					{
+						float3 env = hdri.sampleNearest( rd );
+						L += T * env;
+					}
 					break;
 				}
 
 				float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
 				float3 hitN = getHitN( nMajor, rd );
+				float3 hitP = ro + rd * t;
+
+				{ // Explicit
+					float3 dir;
+					float3 emissive;
+					float p;
+					hdri.importanceSample( &dir, &emissive, &p, rng.nextU32(), rng.nextU32(), rng.nextU32(), rng.nextU32() );
+
+					float t = MAX_FLOAT;
+					int nMajor;
+					uint32_t vIndex = 0;
+					intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
+					if( t == MAX_FLOAT )
+					{
+						L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
+					}
+				}
+
 				T *= R;
 			
 				float u0 = uniformf( rng.nextU32() );
 				float u1 = uniformf( rng.nextU32() );
 				float3 dir = sampleLambertian( u0, u1, hitN );
 
-				ro = ro + rd * t; // no self intersection
+				ro = hitP; // no self intersection
 				rd = dir;
 			}
 
