@@ -5,8 +5,48 @@
 #include "morton.hpp"
 #include "voxCommon.hpp"
 #include "MurmurHash3.h"
+#include "pmjSampler.hpp"
 
 UTEST_MAIN();
+UTEST( owen_scrambling, random )
+{
+	using namespace pr;
+
+	Xoshiro128StarStar random;
+	for( int i = 0; i < 10000000; i++ )
+	{
+		uint32_t seed = random.uniformi();
+		
+		uint64_t x = 0;
+		for( uint32_t i = 0; i < 64; i++ )
+		{
+			uint32_t shuffled = nested_uniform_scramble( i, seed ) & ( 64 - 1 );
+			x |= ( 1llu << shuffled );
+		}
+
+		ASSERT_EQ( x, 0xFFFFFFFFFFFFFFFFllu );
+	}
+
+	for( int i = 0; i < 10000000; i++ )
+	{
+		uint32_t x = random.uniformi();
+		float xf = uniformf( x );
+		float scrambled = scramble_f32( xf, 192324 );
+
+		ASSERT_TRUE( 0.0f <= scrambled && scrambled < 1.0f );
+	}
+}
+UTEST( reverse_bits, random )
+{
+	using namespace pr;
+
+	Xoshiro128StarStar random;
+	for( int i = 0; i < 100000000; i++ )
+	{
+		uint32_t x = random.uniformi();
+		ASSERT_EQ( x, reverseBits( reverseBits( x ) ) );
+	}
+}
 
 UTEST( MurmurHash3, compatibility )
 {

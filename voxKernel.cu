@@ -4,6 +4,7 @@
 #include "voxCommon.hpp"
 #include "IntersectorOctreeGPU.hpp"
 #include "renderCommon.hpp"
+#include "pmjSampler.hpp"
 
 // method to seperate bits from a given integer 3 positions apart
 __device__ inline uint64_t splitBy3( uint32_t a )
@@ -626,7 +627,9 @@ extern "C" __global__ void buildSAT2u32( uint32_t* satU32, double* satF64, int n
 	}
 }
 
+#define USE_PMJ 1
 #define RENDER_NUMBER_OF_THREAD 64
+
 extern "C" __global__ void renderPT(
 	int iteration,
 	float4* frameBuffer, int2 resolution,
@@ -634,6 +637,7 @@ extern "C" __global__ void renderPT(
 	IntersectorOctreeGPU intersector,
 	DynamicAllocatorGPU<StackElement> stackAllocator,
 	HDRI hdri,
+	PMJSampler pmj,
 	int showVertexColor )
 {
 	uint32_t stackHandle;
@@ -670,13 +674,23 @@ extern "C" __global__ void renderPT(
 
 			MurmurHash32 hash( 0 );
 			hash.combine( pixelIdx );
-			hash.combine( spp );
+			uint32_t stream = hash.getHash();
 
+#if defined( USE_PMJ )
+			int dim = 0;
+#else
+			hash.combine( spp );
 			PCG32 rng;
 			rng.setup( 0, hash.getHash() );
+#endif
 
+#if defined( USE_PMJ )
+			float2 cam_u01 = pmj.sample( spp, dim++, stream );
+#else
+			float2 cam_u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
+#endif
 			float3 ro, rd;
-			pinhole.shoot( &ro, &rd, x, y, uniformf( rng.nextU32() ), uniformf( rng.nextU32() ), resolution.x, resolution.y );
+			pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
 
 			float3 T = { 1.0f, 1.0f, 1.0f };
 			float3 L = {};
@@ -704,14 +718,17 @@ extern "C" __global__ void renderPT(
 				float3 hitP = ro + rd * t;
 
 				{ // Explicit
-					float u0 = uniformf( rng.nextU32() );
-					float u1 = uniformf( rng.nextU32() );
-					float u2 = uniformf( rng.nextU32() );
-					float u3 = uniformf( rng.nextU32() );
+#if defined( USE_PMJ )
+					float2 u01 = pmj.sample( spp, dim++, stream );
+					float2 u23 = pmj.sample( spp, dim++, stream );
+#else
+					float2 u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
+					float2 u23 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
+#endif
 					float3 dir;
 					float3 emissive;
 					float p;
-					hdri.importanceSample( &dir, &emissive, &p, hitN, true, u0, u1, u2, u3 );
+					hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
 
 					// no self intersection
 					float t = MAX_FLOAT;
@@ -726,9 +743,12 @@ extern "C" __global__ void renderPT(
 
 				T *= R;
 			
-				float u0 = uniformf( rng.nextU32() );
-				float u1 = uniformf( rng.nextU32() );
-				float3 dir = sampleLambertian( u0, u1, hitN );
+#if defined( USE_PMJ )
+				float2 u01 = pmj.sample( spp, dim++, stream );
+#else
+				float2 u01 = { uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) };
+#endif
+				float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
 				ro = hitP; // no self intersection
 				rd = dir;

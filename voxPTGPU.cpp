@@ -11,6 +11,7 @@
 #include "IntersectorOctreeGPU.hpp"
 #include "voxCommon.hpp"
 #include "renderCommon.hpp"
+#include "pmjSampler.hpp"
 
 #define RENDER_NUMBER_OF_THREAD 64
 
@@ -23,6 +24,9 @@ inline float3 toFloat3( glm::vec3 v )
 
 int main()
 {
+	// PMJSampler pmjcpu;
+	// pmjcpu.setup( false, 0 );
+
 	using namespace pr;
 	SetDataDir( ExecutableDir() );
 
@@ -117,6 +121,9 @@ int main()
 	
 	HDRI hdri;
 	hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), &voxKernel, stream );
+
+	PMJSampler pmj;
+	pmj.setup( true, stream );
 
 	int iteration = 0;
 	std::unique_ptr<Buffer> frameBufferU8;
@@ -221,6 +228,7 @@ int main()
 				args.add( intersectorOctreeGPU );
 				args.add( stackAllocator );
 				args.add( hdri );
+				args.add( pmj );
 				args.add( showVertexColor ? 1 : 0 );
 
 				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
@@ -251,7 +259,6 @@ int main()
 		}
 		bgTexture->upload( image );
 
-
 		PopGraphicState();
 		EndCamera();
 
@@ -261,6 +268,7 @@ int main()
 		ImGui::Begin( "Panel" );
 		ImGui::Text( "device = %s", props.name );
 		ImGui::Text( "fps = %f", GetFrameRate() );
+		ImGui::Text( "iteration = %d", iteration );
 
 		ImGui::SeparatorText( "Voxlizaiton" );
 		ImGui::InputInt( "gridRes", &gridRes );

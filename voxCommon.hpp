@@ -76,6 +76,29 @@ struct MurmurHash32
 	uint32_t len = 0;
 };
 
+DEVICE inline uint32_t hashCombine( uint32_t a, uint32_t b )
+{
+	MurmurHash32 hash( a );
+	hash.combine( b );
+	return hash.getHash();
+}
+
+DEVICE inline uint32_t hashCombine( uint32_t a, uint32_t b, uint32_t c )
+{
+	MurmurHash32 hash( a );
+	hash.combine( b );
+	hash.combine( c );
+	return hash.getHash();
+}
+DEVICE inline uint32_t hashCombine( uint32_t a, uint32_t b, uint32_t c, uint32_t d )
+{
+	MurmurHash32 hash( a );
+	hash.combine( b );
+	hash.combine( c );
+	hash.combine( d );
+	return hash.getHash();
+}
+
 struct OctreeNode
 {
 	uint8_t mask;

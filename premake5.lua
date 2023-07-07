@@ -232,6 +232,9 @@ project "unittest"
     includedirs { "libs/smhasher" }
     files { "libs/smhasher/MurmurHash3.cpp", "libs/smhasher/MurmurHash3.cpp" }
 
+    -- Orochi ( include only )
+    includedirs { "libs/orochi" }
+    
     -- UTF8
     postbuildcommands { 
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
