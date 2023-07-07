@@ -317,9 +317,9 @@ struct DynamicAllocatorGPU
 	}
 #endif
 
-	T* m_memory;
-	uint32_t* m_locks;
-	int m_numberOfBlock;
-	int m_blockSize;
-	int m_nElementPerThread;
+	T* m_memory = 0;
+	uint32_t* m_locks = 0;
+	int m_numberOfBlock = 0;
+	int m_blockSize = 0;
+	int m_nElementPerThread = 0;
 };
