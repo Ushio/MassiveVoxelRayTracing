@@ -707,8 +707,9 @@ extern "C" __global__ void renderPT(
 					float3 dir;
 					float3 emissive;
 					float p;
-					hdri.importanceSample( &dir, &emissive, &p, rng.nextU32(), rng.nextU32(), rng.nextU32(), rng.nextU32() );
+					hdri.importanceSample( &dir, &emissive, &p, hitN, true, rng.nextU32(), rng.nextU32(), rng.nextU32(), rng.nextU32() );
 
+					// no self intersection
 					float t = MAX_FLOAT;
 					int nMajor;
 					uint32_t vIndex = 0;

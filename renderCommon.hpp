@@ -133,6 +133,13 @@ DEVICE inline float2 getSpherical( float3 n )
 struct HDRI
 {
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	HDRI()
+	{
+		for( int i = 0; i < 6; i++ )
+		{
+			m_sats[i] = 0;
+		}
+	}
 	void load( float* ptr, int width, int height, Shader* voxKernel, oroStream stream )
 	{
 		m_width = width;
@@ -145,6 +152,15 @@ struct HDRI
 		{
 			oroFree( (oroDeviceptr)m_sat );
 		}
+		for( int i = 0; i < 6; i++ )
+		{
+			if( m_sats[i] )
+			{
+				oroFree( (oroDeviceptr)m_sats[i] );
+				m_sats[i] = 0;
+			}
+		}
+#define SAT_BLOCK_SIZE 512
 
 		uint64_t pixelBytes = sizeof( float4 ) * m_width * m_height;
 		oroMalloc( (oroDeviceptr*)&m_pixels, pixelBytes );
@@ -165,8 +181,6 @@ struct HDRI
 				div_round_up64( m_width, 8 ), div_round_up64( m_height, 8 ), 1, 
 				8, 8, 1, stream );
 		}
-
-#define SAT_BLOCK_SIZE 512
 		{
 			ShaderArgument args;
 			args.add<int2>( { m_width, m_height } );
@@ -174,7 +188,6 @@ struct HDRI
 			voxKernel->launch( "buildSATh", args, m_height, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
 			voxKernel->launch( "buildSATv", args, m_width, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
 		}
-
 		{
 			ShaderArgument args;
 			args.add( m_sat );
@@ -183,8 +196,48 @@ struct HDRI
 			voxKernel->launch( "buildSAT2u32", args, div_round_up64( m_width * m_height, 64 ), 1, 1, 64, 1, 1, stream );
 		}
 
-		std::vector<uint32_t> sat( m_width * m_height );
-		oroMemcpyDtoHAsync( sat.data(), (oroDeviceptr)m_sat, m_width * m_height * sizeof( uint32_t ), stream );
+		float3 axisList[6] = {
+			{ +1.0f, 0.0f, 0.0f },
+			{ -1.0f, 0.0f, 0.0f },
+			{ 0.0f, +1.0f, 0.0f },
+			{ 0.0f, -1.0f, 0.0f },
+			{ 0.0f, 0.0f, +1.0f },
+			{ 0.0f, 0.0f, -1.0f },
+		};
+		for( int i = 0; i < 6; i++ )
+		{
+			if( m_sats[i] )
+			{
+				oroFree( (oroDeviceptr)m_sats[i] );
+			}
+			oroMalloc( (oroDeviceptr*)&m_sats[i], satBytes );
+
+			{
+				ShaderArgument args;
+				args.add( m_pixels );
+				args.add<int2>( { m_width, m_height } );
+				args.add( satF64.data() );
+				args.add( 1 );
+				args.add( axisList[i] );
+				voxKernel->launch( "HDRIstoreImportance", args,
+								   div_round_up64( m_width, 8 ), div_round_up64( m_height, 8 ), 1,
+								   8, 8, 1, stream );
+			}
+			{
+				ShaderArgument args;
+				args.add<int2>( { m_width, m_height } );
+				args.add( satF64.data() );
+				voxKernel->launch( "buildSATh", args, m_height, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
+				voxKernel->launch( "buildSATv", args, m_width, 1, 1, SAT_BLOCK_SIZE, 1, 1, stream );
+			}
+			{
+				ShaderArgument args;
+				args.add( m_sats[i] );
+				args.add( satF64.data() );
+				args.add( m_width * m_height );
+				voxKernel->launch( "buildSAT2u32", args, div_round_up64( m_width * m_height, 64 ), 1, 1, 64, 1, 1, stream );
+			}
+		}
 
 		oroStreamSynchronize( stream );
 	}
@@ -200,6 +253,14 @@ struct HDRI
 			oroFree( (oroDeviceptr)m_sat );
 			m_sat = 0;
 		}
+		for( int i = 0; i < 6; i++ )
+		{
+			if( m_sats[i] )
+			{
+				oroFree( (oroDeviceptr)m_sats[i] );
+				m_sats[i] = 0;
+			}
+		}
 	}
 #else
 	DEVICE float3 sampleNearest( float3 direction ) const
@@ -212,15 +273,46 @@ struct HDRI
 		return { c.x, c.y, c.z };
 	}
 #endif
-	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, uint32_t u0, uint32_t u1, uint32_t u2, uint32_t u3 ) const
+	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, uint32_t u0, uint32_t u1, uint32_t u2, uint32_t u3 ) const
 	{
+		uint32_t* sat = m_sat;
+
+		if( axisAligned )
+		{
+			const float k = 0.8f;
+			if( k < N.x )
+			{
+				sat = m_sats[0];
+			}
+			else if( N.x < -k )
+			{
+				sat = m_sats[1];
+			}
+			else if( k < N.y )
+			{
+				sat = m_sats[2];
+			}
+			else if( N.y < -k )
+			{
+				sat = m_sats[3];
+			}
+			else if( k < N.z )
+			{
+				sat = m_sats[4];
+			}
+			else if( N.z < -k )
+			{
+				sat = m_sats[5];
+			}
+		}
+
 		int i, j;
 
 		i = 0;
 		j = m_width - 1;
 		do {
 			int mid = ( i + j ) / 2;
-			uint32_t s = getPrefixSumExclusiveH( mid );
+			uint32_t s = getPrefixSumExclusiveH( sat, mid );
 			if( u0 < s )
 			{
 				j = mid;
@@ -234,7 +326,7 @@ struct HDRI
 		uint32_t X = i;
 
 		// H prefix sum range is not 0 to 0xFFFFFFFF need to adjust.
-		uint32_t vol = getPrefixSumExclusiveH( X + 1 ) - getPrefixSumExclusiveH( X );
+		uint32_t vol = getPrefixSumExclusiveH( sat, X + 1 ) - getPrefixSumExclusiveH( sat, X );
 		u1 = (uint64_t)u1 * vol / 0xFFFFFFFFllu;
 
 		i = 0;
@@ -242,7 +334,7 @@ struct HDRI
 		do
 		{
 			int mid = ( i + j ) / 2;
-			uint32_t s = getPrefixSumExclusiveV( X, mid );
+			uint32_t s = getPrefixSumExclusiveV( sat, X, mid );
 			if( u1 < s )
 			{
 				j = mid;
@@ -255,7 +347,7 @@ struct HDRI
 
 		uint32_t Y = i;
 
-		float pSelection = ( float )getCount( X, Y ) / (float)0xFFFFFFFF;
+		float pSelection = (float)getCount( sat, X, Y ) / (float)0xFFFFFFFF;
 
 		float dTheta = PI / (float)m_height;
 		float dPhi = 2.0f * PI / (float)m_width;
@@ -286,38 +378,39 @@ struct HDRI
 		*L = { color.x, color.y, color.z };
 	}
 
-	DEVICE uint32_t getPrefixSumExclusiveH( uint32_t x ) const
+	DEVICE uint32_t getPrefixSumExclusiveH( const uint32_t* sat, uint32_t x ) const
 	{
 		if( x <= 0 )
 		{
 			return 0;
 		}
-		return m_sat[ m_width * ( m_height - 1 ) + x - 1 ];
+		return sat[m_width * ( m_height - 1 ) + x - 1];
 	}
-	DEVICE uint32_t getPrefixSumExclusiveV( uint32_t x, uint32_t y ) const
+	DEVICE uint32_t getPrefixSumExclusiveV( const uint32_t* sat, uint32_t x, uint32_t y ) const
 	{
 		if( y <= 0 )
 		{
 			return 0;
 		}
 
-		uint32_t s0 = x <= 0 ? 0 : m_sat[m_width * ( y - 1 ) + ( x - 1 )];
-		uint32_t s1 = m_sat[m_width * ( y - 1 ) + x];
+		uint32_t s0 = x <= 0 ? 0 : sat[m_width * ( y - 1 ) + ( x - 1 )];
+		uint32_t s1 = sat[m_width * ( y - 1 ) + x];
 		return s1 - s0;
 	}
-	DEVICE uint32_t getCount( uint32_t x, uint32_t y ) const
+	DEVICE uint32_t getCount( const uint32_t* sat, uint32_t x, uint32_t y ) const
 	{
 		// AB
 		// CD
-		uint32_t a = ( x <= 0 || y <= 0 ) ? 0 : m_sat[m_width * ( y - 1 ) + ( x - 1 )];
-		uint32_t b = ( y <= 0 ) ? 0 : m_sat[m_width * ( y - 1 ) + x];
-		uint32_t c = ( x <= 0 ) ? 0 : m_sat[m_width * y + ( x - 1 )];
-		uint32_t d = m_sat[m_width * y + x];
+		uint32_t a = ( x <= 0 || y <= 0 ) ? 0 : sat[m_width * ( y - 1 ) + ( x - 1 )];
+		uint32_t b = ( y <= 0 ) ? 0 : sat[m_width * ( y - 1 ) + x];
+		uint32_t c = ( x <= 0 ) ? 0 : sat[m_width * y + ( x - 1 )];
+		uint32_t d = sat[m_width * y + x];
 		return ( d - b ) + ( a - c );
 	}
 
 	float4* m_pixels = 0;
 	uint32_t* m_sat = 0;
+	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
 };
