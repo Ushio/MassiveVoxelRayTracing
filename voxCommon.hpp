@@ -100,6 +100,16 @@ DEVICE inline uint32_t hashCombine( uint32_t a, uint32_t b, uint32_t c, uint32_t
 	hash.combine( d );
 	return hash.getHash();
 }
+#if defined( __CUDACC__ ) || defined( __HIPCC__ )
+// ...
+#else
+DEVICE inline int numberOfSortBitsMorton( uint32_t gridRes )
+{
+	unsigned long index;
+	_BitScanForward( &index, gridRes );
+	return index * 3;
+}
+#endif
 
 struct OctreeNode
 {

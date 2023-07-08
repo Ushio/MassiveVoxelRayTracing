@@ -108,9 +108,11 @@ struct IntersectorOctreeGPU
 		}
 
 		{
+			int sortBits = next_multiple( numberOfSortBitsMorton( gridRes ), 8 );
+
 			auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( totalDumpedVoxels );
 			Buffer tmpBuffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() );
-			radixsort.sortPairs( mortonVoxelsBuffer->data(), (void*)m_vcolorBuffer, totalDumpedVoxels, tmpBuffer.data(), 0, 64, stream );
+			radixsort.sortPairs( mortonVoxelsBuffer->data(), (void*)m_vcolorBuffer, totalDumpedVoxels, tmpBuffer.data(), 0, sortBits, stream );
 			oroStreamSynchronize( stream );
 		}
 

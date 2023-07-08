@@ -8,6 +8,7 @@
 #include "pmjSampler.hpp"
 
 UTEST_MAIN();
+
 UTEST( owen_scrambling, random )
 {
 	using namespace pr;
@@ -151,5 +152,16 @@ UTEST( morton, encodedecode )
 		ASSERT_EQ( x, dx );
 		ASSERT_EQ( y, dy );
 		ASSERT_EQ( z, dz );
+	}
+}
+
+UTEST( morton, sortBit )
+{
+	for( int i = 0; i < 21; i++ )
+	{
+		uint32_t gridRes = 1u << i;
+		int s = numberOfSortBitsMorton( gridRes );
+		uint64_t m = encode2mortonCode_PDEP( gridRes - 1, gridRes - 1, gridRes - 1 );
+		ASSERT_EQ( __popcnt64( m ), s );
 	}
 }
