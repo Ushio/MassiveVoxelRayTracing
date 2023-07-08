@@ -766,10 +766,11 @@ extern "C" __global__ void renderPT(
 	__syncthreads();
 
 	uint32_t pixelIdx = blockIdx.x * blockDim.x + threadIdx.x;
-	atomicAdd( &frameBuffer[pixelIdx].x, localPixelValueXs[threadIdx.x] );
-	atomicAdd( &frameBuffer[pixelIdx].y, localPixelValueYs[threadIdx.x] );
-	atomicAdd( &frameBuffer[pixelIdx].z, localPixelValueZs[threadIdx.x] );
-	atomicAdd( &frameBuffer[pixelIdx].w, (float)nBatchSpp );
+	frameBuffer[pixelIdx].x += localPixelValueXs[threadIdx.x];
+	frameBuffer[pixelIdx].y += localPixelValueYs[threadIdx.x];
+	frameBuffer[pixelIdx].z += localPixelValueZs[threadIdx.x];
+	frameBuffer[pixelIdx].w += (float)nBatchSpp;
+
 	stackAllocator.release( stackHandle );
 }
 
