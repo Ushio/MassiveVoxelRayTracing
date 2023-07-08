@@ -112,8 +112,11 @@ int main()
 	// GPU buffer
 	Buffer counterBuffer( sizeof( uint32_t ) );
 	IntersectorOctreeGPU intersectorOctreeGPU;
+
+	// power of 2 for nElementPerThread weirdly gives performance down on HIP platform when sizeof(StackElement) % 32 == 0
+	// 37 is a workaround.
 	DynamicAllocatorGPU<StackElement> stackAllocator;
-	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 32 /* nElementPerThread */, stream );
+	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 37 /* nElementPerThread */, stream );
 
 	Image2DRGBA32 hdriSrc;
 	hdriSrc.loadFromHDR( "brown_photostudio_02_2k.hdr" );

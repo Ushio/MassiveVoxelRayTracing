@@ -176,6 +176,7 @@ struct StackElement
 	float scale;
 	uint32_t childMask;
 	uint32_t nVoxelSkipped;
+	uint32_t _pad;
 };
 #else
 struct StackElement
@@ -246,6 +247,17 @@ DEVICE void octreeTraverse_EfficientParametric(
 #if defined( SMALL_STACK )
 	auto copyStackElement = []( StackElement& dst, const StackElement& src )
 	{
+		static_assert( sizeof( StackElement ) % 16 == 0, "" );
+#if defined( __CUDACC__ )
+		// faster on CUDA
+		const float4* pSrc = (const float4*)&src;
+		float4* pDst = (float4*)&dst;
+		const int nCopy = sizeof( StackElement ) / sizeof( float4 );
+		for( int i = 0; i < nCopy; i++ )
+		{
+			pDst[i] = pSrc[i];
+		}
+#else
 		dst.nodeIndex = src.nodeIndex;
 		dst.tx0 = src.tx0;
 		dst.ty0 = src.ty0;
@@ -255,6 +267,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 
 		dst.childMask = src.childMask;
 		dst.nVoxelSkipped = src.nVoxelSkipped;
+#endif
 	};
 	int sp = 0;
 	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 1.0f, 0xFFFFFFFF, 0 };

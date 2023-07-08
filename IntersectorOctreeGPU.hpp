@@ -264,8 +264,8 @@ struct DynamicAllocatorGPU
 		}
 
 		oroMalloc( (oroDeviceptr*)&m_memory, sizeof( T ) * m_nElementPerThread * m_blockSize * m_numberOfBlock );
-		oroMalloc( (oroDeviceptr*)&m_locks, sizeof( uint32_t ) * m_nElementPerThread * m_blockSize * m_numberOfBlock );
-		oroMemsetD32Async( (oroDeviceptr)m_locks, 0, m_nElementPerThread * m_blockSize * m_numberOfBlock, stream );
+		oroMalloc( (oroDeviceptr*)&m_locks, sizeof( uint32_t ) * m_numberOfBlock );
+		oroMemsetD32Async( (oroDeviceptr)m_locks, 0, m_numberOfBlock, stream );
 	}
 	void cleanUp()
 	{
