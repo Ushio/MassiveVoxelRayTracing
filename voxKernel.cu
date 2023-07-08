@@ -654,11 +654,6 @@ extern "C" __global__ void renderPT(
 	uint32_t stackHandle;
 	StackElement* stack = stackAllocator.acquire( &stackHandle );
 
-	__shared__ uint32_t s_iterator;
-	if( threadIdx.x == 0 )
-	{
-		s_iterator = 0;
-	}
 	__shared__ float localPixelValueXs[RENDER_NUMBER_OF_THREAD];
 	__shared__ float localPixelValueYs[RENDER_NUMBER_OF_THREAD];
 	__shared__ float localPixelValueZs[RENDER_NUMBER_OF_THREAD];
@@ -670,97 +665,98 @@ extern "C" __global__ void renderPT(
 
 	const int nBatchSpp = 16;
 
-	for( int i = 0; i < nBatchSpp; i++ )
+	for( int i = 0; i < nBatchSpp * RENDER_NUMBER_OF_THREAD; i += RENDER_NUMBER_OF_THREAD )
 	{
-		uint32_t taskIdx = atomicInc( &s_iterator, 0xFFFFFFFF );
+		uint32_t taskIdx = i + threadIdx.x;
 		uint32_t localPixel = taskIdx / nBatchSpp;
 		uint32_t localSpp = taskIdx % nBatchSpp;
+
 		uint32_t pixelIdx = blockIdx.x * blockDim.x + localPixel;
+		uint32_t x = pixelIdx % resolution.x;
+		uint32_t y = pixelIdx / resolution.x;
 		uint32_t spp = iteration * nBatchSpp + localSpp;
-
-		if( pixelIdx < resolution.x * resolution.y )
+		if( blockDim.x <= localPixel || resolution.x <= x || resolution.y <= y )
 		{
-			uint32_t x = pixelIdx % resolution.x;
-			uint32_t y = pixelIdx / resolution.x;
+			break;
+		}
 
-			MurmurHash32 hash( 0 );
-			hash.combine( pixelIdx );
-			uint32_t stream = hash.getHash();
+		MurmurHash32 hash( 0 );
+		hash.combine( pixelIdx );
 
 #if defined( USE_PMJ )
-			int dim = 0;
+		int dim = 0;
+		uint32_t stream = hash.getHash();
 #define SAMPLE_2D() pmj.sample2d( spp, dim++, stream )
 #else
-			hash.combine( spp );
-			PCG32 rng;
-			rng.setup( 0, hash.getHash() );
+		hash.combine( spp );
+		PCG32 rng;
+		rng.setup( 0, hash.getHash() );
 #define SAMPLE_2D() float2{ uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) }
 #endif
 
-			float2 cam_u01 = SAMPLE_2D();
-			float3 ro, rd;
-			pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
+		float2 cam_u01 = SAMPLE_2D();
+		float3 ro, rd;
+		pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
 
-			float3 T = { 1.0f, 1.0f, 1.0f };
-			float3 L = {};
-			for( int depth = 0; depth < 8; depth++ )
+		float3 T = { 1.0f, 1.0f, 1.0f };
+		float3 L = {};
+		for( int depth = 0; depth < 8; depth++ )
+		{
+			float t = MAX_FLOAT;
+			int nMajor;
+			uint32_t vIndex = 0;
+			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+
+			if( t == MAX_FLOAT )
 			{
+				//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
+				//float3 env = { I, I, I };
+				if (depth == 0)
+				{
+					float3 env = hdri.sampleNearest( rd );
+					L += T * env;
+				}
+				break;
+			}
+
+			float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
+			float3 hitN = getHitN( nMajor, rd );
+			float3 hitP = ro + rd * t;
+
+			{ // Explicit
+				float2 u01 = SAMPLE_2D();
+				float2 u23 = SAMPLE_2D();
+
+				float3 dir;
+				float3 emissive;
+				float p;
+				hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
+
+				// no self intersection
 				float t = MAX_FLOAT;
 				int nMajor;
 				uint32_t vIndex = 0;
-				intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
-
+				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
 				if( t == MAX_FLOAT )
 				{
-					//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
-					//float3 env = { I, I, I };
-					if (depth == 0)
-					{
-						float3 env = hdri.sampleNearest( rd );
-						L += T * env;
-					}
-					break;
+					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
 				}
-
-				float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
-				float3 hitN = getHitN( nMajor, rd );
-				float3 hitP = ro + rd * t;
-
-				{ // Explicit
-					float2 u01 = SAMPLE_2D();
-					float2 u23 = SAMPLE_2D();
-
-					float3 dir;
-					float3 emissive;
-					float p;
-					hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
-
-					// no self intersection
-					float t = MAX_FLOAT;
-					int nMajor;
-					uint32_t vIndex = 0;
-					intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
-					if( t == MAX_FLOAT )
-					{
-						L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
-					}
-				}
-
-				T *= R;
-			
-				float2 u01 = SAMPLE_2D();
-				float3 dir = sampleLambertian( u01.x, u01.y, hitN );
-
-				ro = hitP; // no self intersection
-				rd = dir;
 			}
 
-#undef SAMPLE_2D
+			T *= R;
+			
+			float2 u01 = SAMPLE_2D();
+			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
-			atomicAdd( &localPixelValueXs[localPixel], L.x );
-			atomicAdd( &localPixelValueYs[localPixel], L.y );
-			atomicAdd( &localPixelValueZs[localPixel], L.z );
+			ro = hitP; // no self intersection
+			rd = dir;
 		}
+
+#undef SAMPLE_2D
+		atomicAdd( &localPixelValueXs[localPixel], L.x );
+		atomicAdd( &localPixelValueYs[localPixel], L.y );
+		atomicAdd( &localPixelValueZs[localPixel], L.z );
+
 	}
 
 	__syncthreads();
