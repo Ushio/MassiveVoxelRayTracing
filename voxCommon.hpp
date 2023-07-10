@@ -111,6 +111,12 @@ DEVICE inline int numberOfSortBitsMorton( uint32_t gridRes )
 }
 #endif
 
+struct VoxelAttirb
+{
+	uchar4 color;
+	uchar4 emission;
+};
+
 struct OctreeNode
 {
 	uint8_t mask;

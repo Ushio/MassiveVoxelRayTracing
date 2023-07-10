@@ -19,10 +19,10 @@ struct IntersectorOctreeGPU
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
 	void cleanUp()
 	{
-		if( m_vcolorBuffer )
+		if( m_vAttributeBuffer )
 		{
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
-			m_vcolorBuffer = 0;
+			oroFree( (oroDeviceptr)m_vAttributeBuffer );
+			m_vAttributeBuffer = 0;
 		}
 		if( m_nodeBuffer )
 		{
@@ -32,23 +32,26 @@ struct IntersectorOctreeGPU
 	}
 
 	void build(
-		const std::vector<glm::vec3>& vertices, const std::vector<glm::vec3>& vcolors,
+		const std::vector<glm::vec3>& vertices, 
+		const std::vector<glm::vec3>& vcolors, const std::vector<glm::vec3>& vemissions,
 		Shader* voxKernel, oroStream stream,
 		int gridRes )
 	{
 		thrs::RadixSort::Config rConfig;
 		rConfig.keyType = thrs::KeyType::U64;
-		rConfig.valueType = thrs::ValueType::U32;
+		rConfig.valueType = thrs::ValueType::U64;
 		static thrs::RadixSort radixsort( {}, rConfig );
 
 		// GPU buffer
 		static_assert( sizeof( glm::vec3 ) == sizeof( float3 ), "" );
 		Buffer vertexBuffer( sizeof( float3 ) * vertices.size() );
 		Buffer vcolorBuffer( sizeof( float3 ) * vcolors.size() );
+		Buffer vemissionBuffer( sizeof( float3 ) * vemissions.size() );
 		Buffer counterBuffer( sizeof( uint32_t ) );
 
 		oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), const_cast<glm::vec3*>( vertices.data() ), vertexBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
+		oroMemcpyHtoD( (oroDeviceptr)vemissionBuffer.data(), const_cast<glm::vec3*>( vemissions.data() ), vemissionBuffer.bytes() );
 
 		glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 		glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
@@ -70,7 +73,6 @@ struct IntersectorOctreeGPU
 			uint32_t nTriangles = (uint32_t)( vertices.size() / 3 );
 			ShaderArgument args;
 			args.add( vertexBuffer.data() );
-			args.add( vcolorBuffer.data() );
 			args.add( nTriangles );
 			args.add( counterBuffer.data() );
 			args.add( origin );
@@ -84,11 +86,11 @@ struct IntersectorOctreeGPU
 		oroStreamSynchronize( stream );
 
 		std::unique_ptr<Buffer> mortonVoxelsBuffer( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-		if( m_vcolorBuffer )
+		if( m_vAttributeBuffer )
 		{
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
+			oroFree( (oroDeviceptr)m_vAttributeBuffer );
 		}
-		oroMalloc( (oroDeviceptr*)&m_vcolorBuffer, sizeof( uchar4 ) * totalDumpedVoxels );
+		oroMalloc( (oroDeviceptr*)&m_vAttributeBuffer, sizeof( VoxelAttirb ) * totalDumpedVoxels );
 
 		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 
@@ -97,13 +99,14 @@ struct IntersectorOctreeGPU
 			ShaderArgument args;
 			args.add( vertexBuffer.data() );
 			args.add( vcolorBuffer.data() );
+			args.add( vemissionBuffer.data() );
 			args.add( nTriangles );
 			args.add( counterBuffer.data() );
 			args.add( origin );
 			args.add( dps );
 			args.add( (uint32_t)gridRes );
 			args.add( mortonVoxelsBuffer->data() );
-			args.add( m_vcolorBuffer );
+			args.add( m_vAttributeBuffer );
 			voxKernel->launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
 		}
 
@@ -112,7 +115,7 @@ struct IntersectorOctreeGPU
 
 			auto tmpBufferBytes = radixsort.getTemporaryBufferBytes( totalDumpedVoxels );
 			Buffer tmpBuffer( tmpBufferBytes.getTemporaryBufferBytesForSortPairs() );
-			radixsort.sortPairs( mortonVoxelsBuffer->data(), (void*)m_vcolorBuffer, totalDumpedVoxels, tmpBuffer.data(), 0, sortBits, stream );
+			radixsort.sortPairs( mortonVoxelsBuffer->data(), (void*)m_vAttributeBuffer, totalDumpedVoxels, tmpBuffer.data(), 0, sortBits, stream );
 			oroStreamSynchronize( stream );
 		}
 
@@ -121,8 +124,8 @@ struct IntersectorOctreeGPU
 			Buffer iteratorBuffer( sizeof( uint64_t ) );
 
 			auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-			uchar4* outputVoxelColorsBuffer = 0;
-			oroMalloc( (oroDeviceptr*)&outputVoxelColorsBuffer, sizeof( uchar4 ) * totalDumpedVoxels );
+			VoxelAttirb* outputVoxelAttribsBuffer = 0;
+			oroMalloc( (oroDeviceptr*)&outputVoxelAttribsBuffer, sizeof( VoxelAttirb ) * totalDumpedVoxels );
 
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 			oroMemsetD32Async( (oroDeviceptr)iteratorBuffer.data(), 0, iteratorBuffer.bytes() / 4, stream );
@@ -130,8 +133,8 @@ struct IntersectorOctreeGPU
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( outputMortonVoxelsBuffer->data() );
-			args.add( m_vcolorBuffer );
-			args.add( outputVoxelColorsBuffer );
+			args.add( m_vAttributeBuffer );
+			args.add( outputVoxelAttribsBuffer );
 			args.add( totalDumpedVoxels );
 			args.add( iteratorBuffer.data() );
 			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
@@ -142,8 +145,8 @@ struct IntersectorOctreeGPU
 
 			std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
 
-			oroFree( (oroDeviceptr)m_vcolorBuffer );
-			m_vcolorBuffer = outputVoxelColorsBuffer;
+			oroFree( (oroDeviceptr)m_vAttributeBuffer );
+			m_vAttributeBuffer = outputVoxelAttribsBuffer;
 		}
 
 		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
@@ -234,10 +237,15 @@ struct IntersectorOctreeGPU
 	}
 	DEVICE uchar4 getVoxelColor( uint32_t vIndex ) const 
 	{
-		return m_vcolorBuffer[vIndex];
+		return m_vAttributeBuffer[vIndex].color;
+	}
+	DEVICE uchar4 getVoxelEmission( uint32_t vIndex ) const
+	{
+		return m_vAttributeBuffer[vIndex].emission;
 	}
 #endif
-	uchar4* m_vcolorBuffer = 0;
+	// uchar4* m_vcolorBuffer = 0;
+	VoxelAttirb* m_vAttributeBuffer = 0;
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
 	float3 m_lower;

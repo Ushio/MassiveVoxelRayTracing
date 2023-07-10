@@ -189,7 +189,7 @@ int main()
 		{
 			OroStopwatch oroStream( stream );
 			oroStream.start();
-			intersectorOctreeGPU.build( vertices, vcolors, &voxKernel, stream, gridRes );
+			intersectorOctreeGPU.build( vertices, vcolors, vemissions, &voxKernel, stream, gridRes );
 			oroStream.stop();
 			buildMS = oroStream.getMs();
 		}

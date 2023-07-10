@@ -36,7 +36,7 @@ __device__ void clearShared( T* sMem, T value )
 	}
 }
 
-extern "C" __global__ void voxCount( const float3 *vertices, const float3 *vcolors, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
+extern "C" __global__ void voxCount( const float3 *vertices, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
 {
     uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -69,7 +69,7 @@ extern "C" __global__ void voxCount( const float3 *vertices, const float3 *vcolo
         atomicAdd( counter, nVoxels );
     }
 }
-extern "C" __global__ void voxelize( const float3 *vertices, const float3 *vcolors, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes, uint64_t* mortonVoxels, uchar4* voxelColors )
+extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolors, const float3* vemissions, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes, uint64_t* mortonVoxels, VoxelAttirb* voxelAttribs )
 {
     uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -82,6 +82,10 @@ extern "C" __global__ void voxelize( const float3 *vertices, const float3 *vcolo
         float3 c0 = vcolors[iTri * 3];
         float3 c1 = vcolors[iTri * 3 + 1];
         float3 c2 = vcolors[iTri * 3 + 2];
+
+		float3 e0 = vemissions[iTri * 3];
+		float3 e1 = vemissions[iTri * 3 + 1];
+		float3 e2 = vemissions[iTri * 3 + 2];
 
         bool sixSeparating = true;
         VTContext context( v0, v1, v2, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
@@ -121,12 +125,17 @@ extern "C" __global__ void voxelize( const float3 *vertices, const float3 *vcolo
                         mortonVoxels[dstLocation + nVoxels] = encode2mortonCode_magicbits( c.x, c.y, c.z );
 
                         float3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
-                        float3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
+						float3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
+						float3 bEmission = bc.x * e1 + bc.y * e2 + bc.z * e0;
 
-						voxelColors[dstLocation + nVoxels] = { 
-                            (uint8_t)( bColor.x * 255.0f + 0.5f ), 
-                            (uint8_t)( bColor.y * 255.0f + 0.5f ), 
-                            (uint8_t)( bColor.z * 255.0f + 0.5f ), 255 };
+						voxelAttribs[dstLocation + nVoxels].color = {
+							(uint8_t)( bColor.x * 255.0f + 0.5f ),
+							(uint8_t)( bColor.y * 255.0f + 0.5f ),
+							(uint8_t)( bColor.z * 255.0f + 0.5f ), 255 };
+						voxelAttribs[dstLocation + nVoxels].emission = {
+							(uint8_t)( bEmission.x * 255.0f + 0.5f ),
+							(uint8_t)( bEmission.y * 255.0f + 0.5f ),
+							(uint8_t)( bEmission.z * 255.0f + 0.5f ), 255 };
                         
                         nVoxels++;
                     }
@@ -208,7 +217,7 @@ struct StreamCompaction64
     }
 };
 
-extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const uchar4* inputVoxelColors, uchar4* outputVoxelColors, uint32_t totalDumpedVoxels, uint64_t *iterator )
+extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const VoxelAttirb* inputVoxelAttribs, VoxelAttirb* outputVoxelAttribs, uint32_t totalDumpedVoxels, uint64_t* iterator )
 {
 	__shared__ StreamCompaction64<UNIQUE_BLOCK_SIZE> streamCompaction;
 	streamCompaction.init();
@@ -240,12 +249,18 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 			int R = 0;
 			int G = 0;
 			int B = 0;
+			int Re = 0;
+			int Ge = 0;
+			int Be = 0;
 			int n = 0;
 			for( int j = itemIndex; j < totalDumpedVoxels && inputMortonVoxels[j] == morton; j++ )
 			{
-				R += inputVoxelColors[j].x;
-				G += inputVoxelColors[j].y;
-				B += inputVoxelColors[j].z;
+				R += inputVoxelAttribs[j].color.x;
+				G += inputVoxelAttribs[j].color.y;
+				B += inputVoxelAttribs[j].color.z;
+				Re += inputVoxelAttribs[j].emission.x;
+				Ge += inputVoxelAttribs[j].emission.y;
+				Be += inputVoxelAttribs[j].emission.z;
 				n++;
 			}
 			uchar4 meanColor = {
@@ -253,8 +268,13 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 				(uint8_t)( G / n ),
 				(uint8_t)( B / n ),
 				255 };
-
-			outputVoxelColors[d] = meanColor;
+			uchar4 meanEmission = {
+				(uint8_t)( Re / n ),
+				(uint8_t)( Ge / n ),
+				(uint8_t)( Be / n ),
+				255 };
+			outputVoxelAttribs[d].color = meanColor;
+			outputVoxelAttribs[d].emission = meanEmission;
 		}
 	}
 }
@@ -707,6 +727,10 @@ extern "C" __global__ void renderPT(
 			uint32_t vIndex = 0;
 			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 
+			// Emission
+			// float3 Le = linearReflectance( intersector.getVoxelEmission( vIndex ) );
+			// L += T * Le;
+
 			if( t == MAX_FLOAT )
 			{
 				//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
@@ -723,6 +747,7 @@ extern "C" __global__ void renderPT(
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;
 
+			#if 1
 			{ // Explicit
 				float2 u01 = SAMPLE_2D();
 				float2 u23 = SAMPLE_2D();
@@ -742,6 +767,7 @@ extern "C" __global__ void renderPT(
 					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
 				}
 			}
+			#endif
 
 			T *= R;
 			
