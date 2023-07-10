@@ -279,6 +279,32 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	}
 }
 
+extern "C" __global__ void countEmissions( const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter )
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if( i < numberOfVoxels )
+	{
+		uchar4 emission = voxelAttribs[i].emission;
+		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
+		{
+			atomicInc( counter, 0xFFFFFFFF );
+		}
+	}
+}
+extern "C" __global__ void gatherEmissions( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveVoxel *emissiveVoxels )
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if( i < numberOfVoxels )
+	{
+		uchar4 emission = voxelAttribs[i].emission;
+		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
+		{
+			uint32_t dstIndex = atomicInc( counter, 0xFFFFFFFF );
+			emissiveVoxels[dstIndex].morton = mortonVoxels[i];
+			emissiveVoxels[dstIndex].emission = emission;
+		}
+	}
+}
 
 __device__ uint64_t g_octreeIterator0;
 __device__ uint64_t g_octreeIterator1;

@@ -117,6 +117,12 @@ struct VoxelAttirb
 	uchar4 emission;
 };
 
+struct EmissiveVoxel
+{
+	uint64_t morton;
+	uchar4 emission;
+};
+
 struct OctreeNode
 {
 	uint8_t mask;

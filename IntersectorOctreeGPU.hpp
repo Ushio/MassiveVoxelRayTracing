@@ -24,6 +24,11 @@ struct IntersectorOctreeGPU
 			oroFree( (oroDeviceptr)m_vAttributeBuffer );
 			m_vAttributeBuffer = 0;
 		}
+		if( m_emissionVoxels )
+		{
+			oroFree( (oroDeviceptr)m_emissionVoxels );
+			m_emissionVoxels = 0;
+		}
 		if( m_nodeBuffer )
 		{
 			oroFree( (oroDeviceptr)m_nodeBuffer );
@@ -149,6 +154,36 @@ struct IntersectorOctreeGPU
 			m_vAttributeBuffer = outputVoxelAttribsBuffer;
 		}
 
+		// Gather Emissions
+		{
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+			ShaderArgument args;
+			args.add( m_vAttributeBuffer );
+			args.add( numberOfVoxels );
+			args.add( counterBuffer.data() );
+			voxKernel->launch( "countEmissions", args, div_round_up64( numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+
+			oroMemcpyDtoHAsync( &m_numberOfEmissions, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+
+			oroStreamSynchronize( stream );
+		}
+		// Gather Emissions
+		{
+			if( m_emissionVoxels )
+			{
+				oroFree( (oroDeviceptr)m_emissionVoxels );
+			}
+			oroMalloc( (oroDeviceptr*)&m_emissionVoxels, sizeof( EmissiveVoxel ) * m_numberOfEmissions );
+			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+			ShaderArgument args;
+			args.add( mortonVoxelsBuffer->data() );
+			args.add( m_vAttributeBuffer );
+			args.add( numberOfVoxels );
+			args.add( counterBuffer.data() );
+			args.add( m_emissionVoxels );
+			voxKernel->launch( "gatherEmissions", args, div_round_up64( numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+		}
+
 		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
 
 		int nIteration = 0;
@@ -244,8 +279,9 @@ struct IntersectorOctreeGPU
 		return m_vAttributeBuffer[vIndex].emission;
 	}
 #endif
-	// uchar4* m_vcolorBuffer = 0;
 	VoxelAttirb* m_vAttributeBuffer = 0;
+	EmissiveVoxel* m_emissionVoxels = 0;
+	uint32_t m_numberOfEmissions = 0;
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
 	float3 m_lower;
