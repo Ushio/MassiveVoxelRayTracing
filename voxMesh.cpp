@@ -137,7 +137,8 @@ int main()
 
     std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
-	trianglesFlattened( scene, &vertices, &vcolors );
+	std::vector<glm::vec3> vemissions;
+	trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
 
     glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );

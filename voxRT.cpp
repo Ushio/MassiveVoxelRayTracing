@@ -11,32 +11,42 @@
 #include "voxUtil.hpp"
 #include "renderCommon.hpp"
 
-void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4> *values )
+void mergeVoxels( std::vector<uint64_t>* keys, std::vector<glm::u8vec4>* values, std::vector<glm::u8vec4>* emissions )
 {
-	std::map<uint64_t, glm::uvec4> voxels;
+	struct Attribute
+	{
+		glm::uvec4 color;
+		glm::uvec4 emission;
+	};
+	std::map<uint64_t, Attribute> voxels;
 	for (int i = 0; i < keys->size(); i++)
 	{
 		auto key = ( *keys )[i];
 		auto value = ( *values )[i];
+		auto emission = ( *emissions )[i];
 		auto it = voxels.find( key );
 		if( it == voxels.end() )
 		{
-			voxels[key] = { value.x, value.y, value.z, 1 };
+			voxels[key] = { { value.x, value.y, value.z, 1 }, { emission.x, emission.y, emission.z, 1 } };
 		}
 		else
 		{
-			it->second += glm::vec4{ value.x, value.y, value.z, 1 };
+			it->second.color += glm::vec4{ value.x, value.y, value.z, 1 };
+			it->second.emission += glm::vec4{ emission.x, emission.y, emission.z, 1 };
 		}
 	}
+
 	keys->clear();
 	values->clear();
+	emissions->clear();
 
 	for( auto kv : voxels )
 	{
 		keys->push_back( kv.first );
-		auto v = glm::u8vec4( kv.second / kv.second.w );
-
-		values->push_back( glm::u8vec4( kv.second / kv.second.w ) );
+		auto v = glm::u8vec4( kv.second.color / kv.second.color.w );
+		values->push_back( v );
+		auto e = glm::u8vec4( kv.second.emission / kv.second.emission.w );
+		emissions->push_back( e );
 	}
 }
 
@@ -75,7 +85,8 @@ int main()
 
     std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
-	trianglesFlattened( scene, &vertices, &vcolors );
+	std::vector<glm::vec3> vemissions;
+	trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
 
 	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
 	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
@@ -89,7 +100,15 @@ int main()
 	int gridRes = 512;
 	bool drawModel = false;
 	bool drawWire = false;
-	bool showVertexColor = true;
+
+	enum VIEWMODE
+	{
+		VIEWMODE_COLOR,
+		VIEWMODE_EMISSION,
+		VIEWMODE_NORMAL,
+	};
+	int viewMode = VIEWMODE_COLOR;
+
 	bool buildAccelerationStructure = true;
 	bool renderParallel = false;
 
@@ -155,6 +174,7 @@ int main()
 
 		static std::vector<uint64_t> mortonVoxels;
 		static std::vector<glm::u8vec4> voxelColors;
+		static std::vector<glm::u8vec4> voxelEmissions;
 		Stopwatch sw;
 
 		glm::vec3 origin = bbox_lower;
@@ -165,6 +185,7 @@ int main()
 		{
 			mortonVoxels.clear();
 			voxelColors.clear();
+			voxelEmissions.clear();
 
 			for( int i = 0; i < vertices.size(); i += 3 )
 			{
@@ -175,6 +196,10 @@ int main()
 				float3 c0 = toFloat3( vcolors[i] );
 				float3 c1 = toFloat3( vcolors[i + 1] );
 				float3 c2 = toFloat3( vcolors[i + 2] );
+
+				float3 e0 = toFloat3( vemissions[i] );
+				float3 e1 = toFloat3( vemissions[i + 1] );
+				float3 e2 = toFloat3( vemissions[i + 2] );
 
 				VTContext context( { v0.x, v0.y, v0.z }, { v1.x, v1.y, v1.z }, { v2.x, v2.y, v2.z }, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
 				int2 xrange = context.xRangeInclusive();
@@ -196,6 +221,10 @@ int main()
 								float3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
 								glm::u8vec4 voxelColor = { bColor.x * 255.0f + 0.5f, bColor.y * 255.0f + 0.5f, bColor.z * 255.0f + 0.5f, 255 };
 								voxelColors.push_back( voxelColor );
+
+								float3 bEmission = bc.x * e1 + bc.y * e2 + bc.z * e0;
+								glm::u8vec4 voxelEmission = { bEmission.x * 255.0f + 0.5f, bEmission.y * 255.0f + 0.5f, bEmission.z * 255.0f + 0.5f, 255 };
+								voxelEmissions.push_back( voxelEmission );
 							}
 						}
 					}
@@ -215,7 +244,7 @@ int main()
 		double embreeBuildMS = 0.0;
 		if( buildAccelerationStructure )
 		{
-			mergeVoxels( &mortonVoxels, &voxelColors );
+			mergeVoxels( &mortonVoxels, &voxelColors, &voxelEmissions );
 
 			sw = Stopwatch();
 			embreeVoxel->build( mortonVoxels, origin, dps );
@@ -288,15 +317,18 @@ int main()
 				if( t != FLT_MAX )
 				{
 					float3 hitN = getHitN( nMajor, rd );
-
-					if (showVertexColor)
+					switch( viewMode )
 					{
+					case VIEWMODE_COLOR:
 						image( i, j ) = voxelColors[vIndex];
-					}
-					else
-					{
+						break;
+					case VIEWMODE_EMISSION:
+						image( i, j ) = voxelEmissions[vIndex];
+						break;
+					case VIEWMODE_NORMAL:
 						float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
 						image( i, j ) = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
+						break;
 					}
 				}
 				else
@@ -360,7 +392,10 @@ int main()
 		}
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
-		ImGui::Checkbox( "showVertexColor( DAG Only )", &showVertexColor );
+		ImGui::RadioButton( "viewMode: color", &viewMode, VIEWMODE_COLOR );
+		ImGui::RadioButton( "viewMode: emission", &viewMode, VIEWMODE_EMISSION );
+		ImGui::RadioButton( "viewMode: normal", &viewMode, VIEWMODE_NORMAL );
+
 		ImGui::Text( "voxelization(ms) = %f", voxelizationTime * 1000.0 );
 		ImGui::Text( "octree build(ms) = %f", octreeBuildMS );
 		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
