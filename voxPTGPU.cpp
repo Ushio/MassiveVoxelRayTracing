@@ -143,12 +143,12 @@ int main()
 
 	SetDepthTest( true );
 
+	bool sceneChanged = false;
 	while( pr::NextFrame() == false )
 	{
-		bool sceneChanged = false;
 		if( IsImGuiUsingMouse() == false )
 		{
-			sceneChanged = UpdateCameraBlenderLike( &camera );
+			sceneChanged = sceneChanged || UpdateCameraBlenderLike( &camera );
 		}
 		if( bgTexture )
 		{
@@ -221,6 +221,7 @@ int main()
 			{
 				iteration = 0;
 				oroMemsetD32Async( (oroDeviceptr)frameBufferF32->data(), 0, frameBufferF32->bytes() / 4, stream );
+				sceneChanged = false;
 			}
 
 			{
@@ -278,10 +279,12 @@ int main()
 		if( ImGui::Button( "+", ImVec2( 100, 30 ) ) )
 		{
 			gridRes *= 2;
+			sceneChanged = true;
 		}
 		if( ImGui::Button( "-", ImVec2( 100, 30 ) ) )
 		{
 			gridRes /= 2;
+			sceneChanged = true;
 		}
 		ImGui::Checkbox( "sixSeparating", &sixSeparating );
 		
@@ -299,6 +302,7 @@ int main()
 		ImGui::Checkbox( "showVertexColor", &showVertexColor );
 		ImGui::Text( "build(ms) = %f", buildMS );
 		ImGui::Text( "render(ms) = %f", renderMS );
+		ImGui::Text( "voxels   = %lld", intersectorOctreeGPU.m_numberOfVoxels );
 		ImGui::Text( "octree   = %lld byte", intersectorOctreeGPU.m_numberOfNodes * sizeof( OctreeNode ) );
 		
 		if( ImGui::Button( "Save Image" ) )

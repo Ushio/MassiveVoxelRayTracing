@@ -42,6 +42,11 @@ struct IntersectorOctreeGPU
 		Shader* voxKernel, oroStream stream,
 		int gridRes )
 	{
+		if (__popcnt(gridRes) != 1)
+		{
+			abort();
+		}
+
 		thrs::RadixSort::Config rConfig;
 		rConfig.keyType = thrs::KeyType::U64;
 		rConfig.valueType = thrs::ValueType::U64;
@@ -124,7 +129,6 @@ struct IntersectorOctreeGPU
 			oroStreamSynchronize( stream );
 		}
 
-		uint32_t numberOfVoxels = 0;
 		{
 			Buffer iteratorBuffer( sizeof( uint64_t ) );
 
@@ -144,7 +148,7 @@ struct IntersectorOctreeGPU
 			args.add( iteratorBuffer.data() );
 			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
 
-			oroMemcpyDtoHAsync( &numberOfVoxels, (oroDeviceptr)iteratorBuffer.data(), sizeof( uint32_t ), stream );
+			oroMemcpyDtoHAsync( &m_numberOfVoxels, (oroDeviceptr)iteratorBuffer.data(), sizeof( uint32_t ), stream );
 
 			oroStreamSynchronize( stream );
 
@@ -159,9 +163,9 @@ struct IntersectorOctreeGPU
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 			ShaderArgument args;
 			args.add( m_vAttributeBuffer );
-			args.add( numberOfVoxels );
+			args.add( m_numberOfVoxels );
 			args.add( counterBuffer.data() );
-			voxKernel->launch( "countEmissions", args, div_round_up64( numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+			voxKernel->launch( "countEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
 
 			oroMemcpyDtoHAsync( &m_numberOfEmissions, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 
@@ -178,13 +182,13 @@ struct IntersectorOctreeGPU
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
-			args.add( numberOfVoxels );
+			args.add( m_numberOfVoxels );
 			args.add( counterBuffer.data() );
 			args.add( m_emissionVoxels );
-			voxKernel->launch( "gatherEmissions", args, div_round_up64( numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+			voxKernel->launch( "gatherEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
 		}
 
-		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * numberOfVoxels ) );
+		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * m_numberOfVoxels ) );
 
 		int nIteration = 0;
 		_BitScanForward( (unsigned long*)&nIteration, gridRes );
@@ -194,11 +198,11 @@ struct IntersectorOctreeGPU
 		{
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
-			args.add( numberOfVoxels );
+			args.add( m_numberOfVoxels );
 			args.add( octreeTasksBuffer0->data() );
 			args.add( taskCountersBuffer.data() );
 			args.add( gridRes );
-			voxKernel->launch( "octreeTaskInit", args, div_round_up64( numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
+			voxKernel->launch( "octreeTaskInit", args, div_round_up64( m_numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
 		}
 
 		std::vector<int> taskCounters( nIteration );
@@ -226,7 +230,7 @@ struct IntersectorOctreeGPU
 		}
 		oroMalloc( (oroDeviceptr*)&m_nodeBuffer, sizeof( OctreeNode ) * nTotalInternalNodes );
 
-		uint32_t nInput = numberOfVoxels;
+		uint32_t nInput = m_numberOfVoxels;
 		int wide = gridRes;
 		int iteration = 0;
 
@@ -284,6 +288,7 @@ struct IntersectorOctreeGPU
 	uint32_t m_numberOfEmissions = 0;
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
+	uint32_t m_numberOfVoxels = 0;
 	float3 m_lower;
 	float3 m_upper;
 };
