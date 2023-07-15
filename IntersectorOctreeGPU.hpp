@@ -24,10 +24,15 @@ struct IntersectorOctreeGPU
 			oroFree( (oroDeviceptr)m_vAttributeBuffer );
 			m_vAttributeBuffer = 0;
 		}
-		if( m_emissionVoxels )
+		//if( m_emissionVoxels )
+		//{
+		//	oroFree( (oroDeviceptr)m_emissionVoxels );
+		//	m_emissionVoxels = 0;
+		//}
+		if (m_emissiveSurfaces)
 		{
-			oroFree( (oroDeviceptr)m_emissionVoxels );
-			m_emissionVoxels = 0;
+			oroFree( (oroDeviceptr)m_emissiveSurfaces );
+			m_emissiveSurfaces = 0;
 		}
 		if( m_nodeBuffer )
 		{
@@ -77,6 +82,7 @@ struct IntersectorOctreeGPU
 
 		m_lower = { origin.x, origin.y, origin.z };
 		m_upper = float3{ origin.x, origin.y, origin.z } + float3{ dps, dps, dps } * (float)gridRes;
+		m_dps = dps;
 
 		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 		{
@@ -162,31 +168,63 @@ struct IntersectorOctreeGPU
 		{
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 			ShaderArgument args;
+			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
 			args.add( m_numberOfVoxels );
 			args.add( counterBuffer.data() );
-			voxKernel->launch( "countEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+			voxKernel->launch( "countEmissiveSurfaces", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
 
-			oroMemcpyDtoHAsync( &m_numberOfEmissions, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+			oroMemcpyDtoHAsync( &m_numberOfEmissiveSurfaces, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 
 			oroStreamSynchronize( stream );
 		}
-		// Gather Emissions
 		{
-			if( m_emissionVoxels )
+			if( m_emissiveSurfaces )
 			{
-				oroFree( (oroDeviceptr)m_emissionVoxels );
+				oroFree( (oroDeviceptr)m_emissiveSurfaces );
 			}
-			oroMalloc( (oroDeviceptr*)&m_emissionVoxels, sizeof( EmissiveVoxel ) * m_numberOfEmissions );
+			oroMalloc( (oroDeviceptr*)&m_emissiveSurfaces, sizeof( EmissiveSurface ) * m_numberOfEmissiveSurfaces );
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
 			args.add( m_numberOfVoxels );
 			args.add( counterBuffer.data() );
-			args.add( m_emissionVoxels );
-			voxKernel->launch( "gatherEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+			args.add( m_emissiveSurfaces );
+			args.add( float3{ origin.x, origin.y, origin.z } );
+			args.add( dps );
+			voxKernel->launch( "gatherEmissiveSurfaces", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
 		}
+
+		// Gather Emissions
+		//{
+		//	oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+		//	ShaderArgument args;
+		//	args.add( m_vAttributeBuffer );
+		//	args.add( m_numberOfVoxels );
+		//	args.add( counterBuffer.data() );
+		//	voxKernel->launch( "countEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+
+		//	oroMemcpyDtoHAsync( &m_numberOfEmissions, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
+
+		//	oroStreamSynchronize( stream );
+		//}
+		// Gather Emissions
+		//{
+		//	if( m_emissionVoxels )
+		//	{
+		//		oroFree( (oroDeviceptr)m_emissionVoxels );
+		//	}
+		//	oroMalloc( (oroDeviceptr*)&m_emissionVoxels, sizeof( EmissiveVoxel ) * m_numberOfEmissions );
+		//	oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+		//	ShaderArgument args;
+		//	args.add( mortonVoxelsBuffer->data() );
+		//	args.add( m_vAttributeBuffer );
+		//	args.add( m_numberOfVoxels );
+		//	args.add( counterBuffer.data() );
+		//	args.add( m_emissionVoxels );
+		//	voxKernel->launch( "gatherEmissions", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
+		//}
 
 		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * m_numberOfVoxels ) );
 
@@ -282,15 +320,40 @@ struct IntersectorOctreeGPU
 	{
 		return m_vAttributeBuffer[vIndex].emission;
 	}
+	DEVICE uint32_t getNumberOfEmissiveSurfaces() const 
+	{ 
+		return m_numberOfEmissiveSurfaces; 
+	}
+	DEVICE float getFaceWidth() const
+	{
+		return m_dps;
+	}
+	DEVICE void getEmissiveFace( uint32_t indexOfSurface, float3* faceNormal, float3* faceCenter )
+	{
+		EmissiveSurface f = m_emissiveSurfaces[indexOfSurface];
+		float3 index = floorf( ( f.pivot - m_lower ) / m_dps );
+		float3 voxelOrigin = m_lower + index * m_dps;
+		float3 voxelCenter = voxelOrigin + float3{ m_dps * 0.5f, m_dps * 0.5f, m_dps * 0.5f };
+		float3 dir = f.pivot - voxelCenter;
+		float3 n = dir / ( m_dps / 4.0f );
+
+		*faceNormal = n;
+		*faceCenter = voxelCenter + dir;
+	}
 #endif
 	VoxelAttirb* m_vAttributeBuffer = 0;
-	EmissiveVoxel* m_emissionVoxels = 0;
-	uint32_t m_numberOfEmissions = 0;
+	//EmissiveVoxel* m_emissionVoxels = 0;
+	// uint32_t m_numberOfEmissions = 0;
+
+	EmissiveSurface* m_emissiveSurfaces = 0;
+	uint32_t m_numberOfEmissiveSurfaces = 0;
+
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
 	uint32_t m_numberOfVoxels = 0;
 	float3 m_lower;
 	float3 m_upper;
+	float m_dps = 0.0f;
 };
 
 template <class T>

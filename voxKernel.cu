@@ -24,6 +24,24 @@ __device__ inline uint64_t encode2mortonCode_magicbits( uint32_t x, uint32_t y, 
 	return answer;
 }
 
+__device__ inline uint32_t getThirdBits( uint64_t m )
+{
+	const uint64_t masks[6] = { 0x1fffffllu, 0x1f00000000ffffllu, 0x1f0000ff0000ffllu, 0x100f00f00f00f00fllu, 0x10c30c30c30c30c3llu, 0x1249249249249249llu };
+	uint64_t x = m & masks[5];
+	x = ( x ^ ( x >> 2 ) ) & masks[4];
+	x = ( x ^ ( x >> 4 ) ) & masks[3];
+	x = ( x ^ ( x >> 8 ) ) & masks[2];
+	x = ( x ^ ( x >> 16 ) ) & masks[1];
+	x = ( x ^ ( x >> 32 ) ) & masks[0];
+	return static_cast<uint32_t>( x );
+}
+__device__ inline void decodeMortonCode_magicBits( uint64_t morton, uint32_t* x, uint32_t* y, uint32_t* z )
+{
+	*x = getThirdBits( morton );
+	*y = getThirdBits( morton >> 1 );
+	*z = getThirdBits( morton >> 2 );
+}
+
 template <int NElement, int NThread, class T>
 __device__ void clearShared( T* sMem, T value )
 {
@@ -279,7 +297,7 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	}
 }
 
-extern "C" __global__ void countEmissions( const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter )
+extern "C" __global__ void countEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter )
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if( i < numberOfVoxels )
@@ -287,11 +305,22 @@ extern "C" __global__ void countEmissions( const VoxelAttirb* voxelAttribs, uint
 		uchar4 emission = voxelAttribs[i].emission;
 		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
 		{
-			atomicInc( counter, 0xFFFFFFFF );
+			uint32_t x, y, z;
+			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
+
+			bool noXp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
+			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
+			bool noYp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
+			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
+			bool noZp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
+			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
+
+			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
+			atomicAdd( counter, nface );
 		}
 	}
 }
-extern "C" __global__ void gatherEmissions( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveVoxel *emissiveVoxels )
+extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveSurface* emissiveSurfaces, float3 origin, float dps )
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if( i < numberOfVoxels )
@@ -299,9 +328,57 @@ extern "C" __global__ void gatherEmissions( const uint64_t* mortonVoxels, const 
 		uchar4 emission = voxelAttribs[i].emission;
 		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
 		{
-			uint32_t dstIndex = atomicInc( counter, 0xFFFFFFFF );
-			emissiveVoxels[dstIndex].morton = mortonVoxels[i];
-			emissiveVoxels[dstIndex].emission = emission;
+			uint32_t x, y, z;
+			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
+
+			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
+			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
+			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
+			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
+			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
+			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
+
+			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
+			uint32_t h = atomicAdd( counter, nface );
+
+			float3 center = origin + float3{ ( (float)x + 0.5f ) * dps, ( (float)y + 0.5f ) * dps, ( (float)z + 0.5f ) * dps };
+
+			if( noXp )
+			{
+				emissiveSurfaces[h].pivot = center + float3{ dps / 4.0f, 0.0f, 0.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
+			if( noXm )
+			{
+				emissiveSurfaces[h].pivot = center - float3{ dps / 4.0f, 0.0f, 0.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
+			if( noYp )
+			{
+				emissiveSurfaces[h].pivot = center + float3{ 0.0f, dps / 4.0f, 0.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
+			if( noYm )
+			{
+				emissiveSurfaces[h].pivot = center - float3{ 0.0f, dps / 4.0f, 0.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
+			if( noZp )
+			{
+				emissiveSurfaces[h].pivot = center + float3{ 0.0f, 0.0f, dps / 4.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
+			if( noZm )
+			{
+				emissiveSurfaces[h].pivot = center - float3{ 0.0f, 0.0f, dps / 4.0f };
+				emissiveSurfaces[h].emission = emission;
+				h++;
+			}
 		}
 	}
 }

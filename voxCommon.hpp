@@ -117,9 +117,9 @@ struct VoxelAttirb
 	uchar4 emission;
 };
 
-struct EmissiveVoxel
+struct EmissiveSurface
 {
-	uint64_t morton;
+	float3 pivot;
 	uchar4 emission;
 };
 
@@ -537,3 +537,29 @@ DEVICE inline T getHitN( int major, T rd )
 	return { 0.0f, 0.0f, 0.0f };
 }
 
+
+template <class T>
+DEVICE inline int bSearch( const T* xs, int n, T x )
+{
+	int i = 0;
+	int j = n;
+
+	while( i < j )
+	{
+		int m = ( i + j ) / 2;
+		T value = xs[m];
+		if( value == x )
+		{
+			return m;
+		}
+		else if( value < x )
+		{
+			i = m + 1;
+		}
+		else
+		{
+			j = m;
+		}
+	}
+	return -1;
+}

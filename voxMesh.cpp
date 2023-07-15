@@ -7,6 +7,7 @@
 #include <set>
 
 #include "voxUtil.hpp"
+#include "voxCommon.hpp"
 
 inline void drawVoxelsFace( const std::vector<uint64_t>& mortonVoxels, const std::vector<glm::u8vec4>& colors, const glm::vec3& origin, float dps )
 {
@@ -105,6 +106,116 @@ inline void drawVoxelsFace( const std::vector<uint64_t>& mortonVoxels, const std
 inline float3 toFloat3( glm::vec3 v )
 {
 	return { v.x, v.y, v.z };
+}
+
+inline void saveVoxelsAsMesh( const char *file, const std::vector<uint64_t>& sortedMortons, glm::vec3 origin, float dps )
+{
+	std::vector<glm::vec3> points;
+	points.reserve( sortedMortons.size() * 8 );
+	for( uint64_t morton : sortedMortons )
+	{
+		uint32_t x, y, z;
+		decodeMortonCode_PEXT( morton, &x, &y, &z );
+		glm::vec3 p = { origin.x + x * dps, origin.y + y * dps, origin.z + z * dps };
+
+		points.push_back( p );
+		points.push_back( p + glm::vec3( dps, 0, 0 ) );
+		points.push_back( p + glm::vec3( dps, 0, dps ) );
+		points.push_back( p + glm::vec3( 0, 0, dps ) );
+		points.push_back( p + glm::vec3( 0, dps, 0 ) );
+		points.push_back( p + glm::vec3( dps, dps, 0 ) );
+		points.push_back( p + glm::vec3( dps, dps, dps ) );
+		points.push_back( p + glm::vec3( 0, dps, dps ) );
+	}
+
+	FILE* fp = fopen( file, "wb" );
+
+	int nVoxels = points.size() / 8;
+	std::vector<uint8_t> bytes;
+	bytes.reserve( ( 1 + sizeof( uint32_t ) * 4 ) * 6 * nVoxels );
+	uint32_t head = 0;
+	uint32_t nface = 0;
+	for( int i = 0; i < nVoxels; i++ )
+	{
+		uint32_t x, y, z;
+		decodeMortonCode_PEXT( sortedMortons[i], &x, &y, &z );
+
+		bool noXp = bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x + 1, y, z ) ) == -1;
+		bool noXm = x == 0 || bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x - 1, y, z ) ) == -1;
+		bool noYp = bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x, y + 1, z ) ) == -1;
+		bool noYm = y == 0 || bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x, y - 1, z ) ) == -1;
+		bool noZp = bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x, y, z + 1 ) ) == -1;
+		bool noZm = z == 0 || bSearch( sortedMortons.data(), sortedMortons.size(), encode2mortonCode_PDEP( x, y, z - 1 ) ) == -1;
+
+		uint32_t i0 = i * 8;
+		uint32_t i1 = i * 8 + 1;
+		uint32_t i2 = i * 8 + 2;
+		uint32_t i3 = i * 8 + 3;
+		uint32_t i4 = i * 8 + 4;
+		uint32_t i5 = i * 8 + 5;
+		uint32_t i6 = i * 8 + 6;
+		uint32_t i7 = i * 8 + 7;
+
+#define F( a, b, c, d )                             \
+	bytes.resize( bytes.size() + sizeof( uint32_t ) * 4 + 1 ); nface++; \
+	bytes[head++] = 4;                              \
+	memcpy( &bytes[head], &a, sizeof( uint32_t ) ); \
+	head += 4;                                      \
+	memcpy( &bytes[head], &b, sizeof( uint32_t ) ); \
+	head += 4;                                      \
+	memcpy( &bytes[head], &c, sizeof( uint32_t ) ); \
+	head += 4;                                      \
+	memcpy( &bytes[head], &d, sizeof( uint32_t ) ); \
+	head += 4;
+
+		// Left Hand
+		if( noYm )
+		{
+			F( i3, i2, i1, i0 );
+		}
+
+		if( noYp )
+		{
+			F( i4, i5, i6, i7 );
+		}
+
+		if( noZm )
+		{
+			F( i0, i1, i5, i4 );
+		}
+
+		if( noXp )
+		{
+			F( i1, i2, i6, i5 );
+		}
+
+		if( noZp )
+		{
+			F( i2, i3, i7, i6 );
+		}
+
+		if( noXm )
+		{
+			F( i3, i0, i4, i7 );
+		}
+#undef F
+	}
+
+	// PLY header
+	fprintf( fp, "ply\n" );
+	fprintf( fp, "format binary_little_endian 1.0\n" );
+	fprintf( fp, "element vertex %llu\n", points.size() );
+	fprintf( fp, "property float x\n" );
+	fprintf( fp, "property float y\n" );
+	fprintf( fp, "property float z\n" );
+	fprintf( fp, "element face %d\n", nface );
+	fprintf( fp, "property list uchar uint vertex_indices\n" );
+	fprintf( fp, "end_header\n" );
+
+	// Write vertices
+	fwrite( points.data(), sizeof( glm::vec3 ) * points.size(), 1, fp );
+	fwrite( bytes.data(), bytes.size(), 1, fp );
+	fclose( fp );
 }
 
 int main()
@@ -281,14 +392,15 @@ int main()
 			VoxelMeshWriter writer;
 			std::set<uint64_t> voxels( mortonVoxels.begin(), mortonVoxels.end() );
 
-			for (auto m : voxels)
-			{
-				uint32_t x, y, z;
-				decodeMortonCode_PEXT( m, &x, &y, &z );
-				writer.add( { origin.x + x * dps, origin.y + y * dps, origin.z + z * dps }, dps );
-			}
+			saveVoxelsAsMesh( GetDataPath( "vox.ply" ).c_str(), std::vector<uint64_t>( voxels.begin(), voxels.end() ), origin, dps );
+			//for (auto m : voxels)
+			//{
+			//	uint32_t x, y, z;
+			//	decodeMortonCode_PEXT( m, &x, &y, &z );
+			//	writer.add( { origin.x + x * dps, origin.y + y * dps, origin.z + z * dps }, dps );
+			//}
 
-			writer.savePLY( GetDataPath( "vox.ply" ).c_str() );
+			//writer.savePLY( GetDataPath( "vox.ply" ).c_str() );
 		}
 
 		ImGui::End();

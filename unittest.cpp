@@ -9,6 +9,32 @@
 
 UTEST_MAIN();
 
+UTEST( search, random )
+{
+	using namespace pr;
+
+	Xoshiro128StarStar random;
+	for( int i = 0; i < 100000; i++ )
+	{
+		std::vector<int> xs;
+		for (int j = 0; j < 100; j++)
+		{
+			xs.push_back( random.uniformi() % 100 );
+		}
+
+		std::sort( xs.begin(), xs.end() );
+
+		for( int j = 0; j < 1000; j++ )
+		{
+			int x = random.uniformi() % 120;
+
+			bool found0 = std::binary_search( xs.begin(), xs.end(), x );
+			bool found1 = bSearch( xs.data(), xs.size(), x ) != -1;
+			ASSERT_EQ( found0, found1 );
+		}
+	}
+}
+
 UTEST( owen_scrambling, random )
 {
 	using namespace pr;
@@ -149,6 +175,12 @@ UTEST( morton, encodedecode )
 		ASSERT_EQ( z, dz );
 
 		decodeMortonCode_PEXT( m0, &dx, &dy, &dz );
+		ASSERT_EQ( x, dx );
+		ASSERT_EQ( y, dy );
+		ASSERT_EQ( z, dz );
+
+
+		decodeMortonCode_magicBits( m0, &dx, &dy, &dz );
 		ASSERT_EQ( x, dx );
 		ASSERT_EQ( y, dy );
 		ASSERT_EQ( z, dz );
