@@ -816,6 +816,9 @@ extern "C" __global__ void renderPT(
 		rng.setup( 0, hash.getHash() );
 #define SAMPLE_2D() float2{ uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) }
 #endif
+		hash.combine( spp );
+		PCG32 rng;
+		rng.setup( 0, hash.getHash() );
 
 		float2 cam_u01 = SAMPLE_2D();
 		float3 ro, rd;
@@ -823,7 +826,7 @@ extern "C" __global__ void renderPT(
 
 		float3 T = { 1.0f, 1.0f, 1.0f };
 		float3 L = {};
-		for( int depth = 0; depth < 8; depth++ )
+		for( int depth = 0; depth < 1; depth++ )
 		{
 			float t = MAX_FLOAT;
 			int nMajor;
@@ -831,8 +834,11 @@ extern "C" __global__ void renderPT(
 			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 
 			// Emission
-			// float3 Le = linearReflectance( intersector.getVoxelEmission( vIndex ) );
-			// L += T * Le;
+			if( depth == 0 )
+			{
+				float3 Le = linearReflectance( intersector.getVoxelEmission( vIndex ) );
+				L += T * Le;
+			}
 
 			if( t == MAX_FLOAT )
 			{
@@ -850,7 +856,7 @@ extern "C" __global__ void renderPT(
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;
 
-			#if 1
+			#if 0
 			{ // Explicit
 				float2 u01 = SAMPLE_2D();
 				float2 u23 = SAMPLE_2D();
@@ -868,6 +874,42 @@ extern "C" __global__ void renderPT(
 				if( t == MAX_FLOAT )
 				{
 					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
+				}
+			}
+			#endif
+
+			#if 1
+			{ // Explicit
+				float faceWidth = intersector.getFaceWidth();
+				float sPdf = 1.0f / (float)intersector.getNumberOfEmissiveSurfaces();
+				uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
+				float3 faceNormal;
+				float3 faceCenter;
+				float3 emission;
+				intersector.getEmissiveFace( faceIndex, &faceNormal, &faceCenter, &emission );
+
+				float3 xaxis = { faceNormal.y, faceNormal.z, faceNormal.x };
+				float3 yaxis = { faceNormal.z, faceNormal.x, faceNormal.y };
+
+				float2 u01 = SAMPLE_2D();
+				float3 pLight = faceCenter + xaxis * faceWidth * ( u01.x - 0.5f ) + yaxis * faceWidth * ( u01.y - 0.5f );
+
+				float3 dir = pLight - hitP;
+				float3 ndir = normalize( dir );
+				float cosTheta0 = dot( ndir, hitN );
+				float cosTheta1 = dot( -ndir, faceNormal );
+				float G = cosTheta0 * cosTheta1 / dot( dir, dir );
+				float oneOverPdfA = faceWidth * faceWidth;
+				if( 0.0f < cosTheta0 && 0.0001f < cosTheta1 )
+				{
+					float t = MAX_FLOAT;
+					int nMajor;
+					uint32_t vIndexShadow = 0;
+					intersector.intersect( stack, pLight, -dir, &t, &nMajor, &vIndexShadow );
+					if( vIndexShadow == vIndex )
+					{
+						L += T * ( R / PI ) * G * emission * oneOverPdfA / sPdf;
+					}
 				}
 			}
 			#endif

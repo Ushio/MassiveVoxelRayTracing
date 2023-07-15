@@ -1,6 +1,7 @@
 #pragma once
 
 #include "voxCommon.hpp"
+#include "renderCommon.hpp"
 
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
 #include "tinyhipradixsort.hpp"
@@ -328,7 +329,7 @@ struct IntersectorOctreeGPU
 	{
 		return m_dps;
 	}
-	DEVICE void getEmissiveFace( uint32_t indexOfSurface, float3* faceNormal, float3* faceCenter )
+	DEVICE void getEmissiveFace( uint32_t indexOfSurface, float3* faceNormal, float3* faceCenter, float3* emission )
 	{
 		EmissiveSurface f = m_emissiveSurfaces[indexOfSurface];
 		float3 index = floorf( ( f.pivot - m_lower ) / m_dps );
@@ -338,7 +339,8 @@ struct IntersectorOctreeGPU
 		float3 n = dir / ( m_dps / 4.0f );
 
 		*faceNormal = n;
-		*faceCenter = voxelCenter + dir;
+		*faceCenter = f.pivot + dir;
+		*emission = linearReflectance( f.emission );
 	}
 #endif
 	VoxelAttirb* m_vAttributeBuffer = 0;

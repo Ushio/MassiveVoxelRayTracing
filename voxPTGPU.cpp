@@ -134,7 +134,7 @@ int main()
 	std::unique_ptr<Buffer> frameBufferF32;
 
 	bool sixSeparating = true;
-	int gridRes = 512;
+	int gridRes = 32;
 	bool drawModel = false;
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
