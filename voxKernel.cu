@@ -298,91 +298,91 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	}
 }
 
-extern "C" __global__ void countEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter )
-{
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	if( i < numberOfVoxels )
-	{
-		uchar4 emission = voxelAttribs[i].emission;
-		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
-		{
-			uint32_t x, y, z;
-			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
-
-			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
-			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
-			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
-			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
-			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
-			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
-
-			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
-			atomicAdd( counter, nface );
-		}
-	}
-}
-extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveSurface* emissiveSurfaces, float3 origin, float dps, LCGShuffler shuffler )
-{
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	if( i < numberOfVoxels )
-	{
-		uchar4 emission = voxelAttribs[i].emission;
-		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
-		{
-			uint32_t x, y, z;
-			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
-
-			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
-			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
-			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
-			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
-			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
-			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
-
-			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
-			uint32_t h = atomicAdd( counter, nface );
-
-			float3 center = origin + float3{ ( (float)x + 0.5f ) * dps, ( (float)y + 0.5f ) * dps, ( (float)z + 0.5f ) * dps };
-
-			if( noXp )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center + float3{ dps / 4.0f, 0.0f, 0.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-			if( noXm )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center - float3{ dps / 4.0f, 0.0f, 0.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-			if( noYp )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, dps / 4.0f, 0.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-			if( noYm )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, dps / 4.0f, 0.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-			if( noZp )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, 0.0f, dps / 4.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-			if( noZm )
-			{
-				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, 0.0f, dps / 4.0f };
-				emissiveSurfaces[shuffler( h )].emission = emission;
-				h++;
-			}
-		}
-	}
-}
+//extern "C" __global__ void countEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter )
+//{
+//	int i = blockIdx.x * blockDim.x + threadIdx.x;
+//	if( i < numberOfVoxels )
+//	{
+//		uchar4 emission = voxelAttribs[i].emission;
+//		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
+//		{
+//			uint32_t x, y, z;
+//			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
+//
+//			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
+//			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
+//			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
+//			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
+//			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
+//			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
+//
+//			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
+//			atomicAdd( counter, nface );
+//		}
+//	}
+//}
+//extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveSurface* emissiveSurfaces, float3 origin, float dps, LCGShuffler shuffler )
+//{
+//	int i = blockIdx.x * blockDim.x + threadIdx.x;
+//	if( i < numberOfVoxels )
+//	{
+//		uchar4 emission = voxelAttribs[i].emission;
+//		if( 0 < emission.x || 0 < emission.y || 0 < emission.z )
+//		{
+//			uint32_t x, y, z;
+//			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
+//
+//			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
+//			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
+//			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
+//			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
+//			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
+//			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
+//
+//			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
+//			uint32_t h = atomicAdd( counter, nface );
+//
+//			float3 center = origin + float3{ ( (float)x + 0.5f ) * dps, ( (float)y + 0.5f ) * dps, ( (float)z + 0.5f ) * dps };
+//
+//			if( noXp )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center + float3{ dps / 4.0f, 0.0f, 0.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//			if( noXm )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center - float3{ dps / 4.0f, 0.0f, 0.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//			if( noYp )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, dps / 4.0f, 0.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//			if( noYm )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, dps / 4.0f, 0.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//			if( noZp )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, 0.0f, dps / 4.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//			if( noZm )
+//			{
+//				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, 0.0f, dps / 4.0f };
+//				emissiveSurfaces[shuffler( h )].emission = emission;
+//				h++;
+//			}
+//		}
+//	}
+//}
 
 __device__ uint64_t g_octreeIterator0;
 __device__ uint64_t g_octreeIterator1;
@@ -847,15 +847,13 @@ extern "C" __global__ void renderPT(
 			L += T * Le;
 		}
 
-		const float kGThreshold = 1.0f / 16.0f;
-
 		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
 		{
 			float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;
 
-#if 0
+			if( hdri.isEnabled() )
 			{ // Explicit
 				float2 u01 = SAMPLE_2D();
 				float2 u23 = SAMPLE_2D();
@@ -865,6 +863,8 @@ extern "C" __global__ void renderPT(
 				float p;
 				hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
 
+				float specularReflectance = fresnelSchlick( dot( normalize( -rd ), hitN ), 1.0f, 1.5f );
+
 				// no self intersection
 				float t = MAX_FLOAT;
 				int nMajor;
@@ -872,108 +872,26 @@ extern "C" __global__ void renderPT(
 				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
 				if( t == MAX_FLOAT )
 				{
-					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
+					L += ( 1.0f - specularReflectance ) * T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
 				}
 			}
-#endif
-
-#if 0
-			{ // Explicit
-				float faceWidth = intersector.getFaceWidth();
-				float sPdf = 1.0f / (float)intersector.getNumberOfEmissiveSurfaces();
-
-				// RIS
-				int N = 16;
-				float ws = 0.0f;
-				uint32_t selectedFaceIndex = 0;
-				float selectedpHut = 0.0f;
-
-				float u = SAMPLE_2D().x;
-				uint32_t home = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
-				for( int i = 0; i < N; i++ )
-				{
-					// uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
-					uint32_t faceIndex = ( home + i ) % intersector.getNumberOfEmissiveSurfaces();
-					float3 faceNormal;
-					float3 faceCenter;
-					float3 emission;
-					intersector.getEmissiveFace( faceIndex, &faceNormal, &faceCenter, &emission );
-
-					float3 pLight = faceCenter;
-					float3 dir = pLight - hitP;
-					float3 ndir = normalize( dir );
-					float cosTheta0 = max( dot( ndir, hitN ), 0.0f );
-					float cosTheta1 = max( dot( -ndir, faceNormal ), 0.0f );
-					float d2 = dot( dir, dir );
-					float G = cosTheta0 * cosTheta1 / d2;
-					float pHut = G;
-					float w = pHut / sPdf;
-
-					ws = ws + w;
-
-					//if( ws == 0.0f || uniformf( rng.nextU32() ) < w / ws )
-					//{
-					//	selectedFaceIndex = faceIndex;
-					//	selectedpHut = pHut;
-					//}
-
-					float p = w / ws;
-					if( ws == 0.0f )
-					{
-						selectedFaceIndex = faceIndex;
-						selectedpHut = pHut;
-					}
-					else if( u < p )
-					{
-						selectedFaceIndex = faceIndex;
-						selectedpHut = pHut;
-						u = u / p;
-					}
-					else
-					{
-						u = ( u - p ) / ( 1.0f - p );
-					}
-				}
-
-				float wRIS = ws / ( N * selectedpHut );
-				uint32_t faceIndex = selectedFaceIndex;
-
-				float3 faceNormal;
-				float3 faceCenter;
-				float3 emission;
-				intersector.getEmissiveFace( faceIndex, &faceNormal, &faceCenter, &emission );
-
-				float3 xaxis = { faceNormal.y, faceNormal.z, faceNormal.x };
-				float3 yaxis = { faceNormal.z, faceNormal.x, faceNormal.y };
-
-				float2 u01 = SAMPLE_2D();
-				float3 pLight = faceCenter + xaxis * faceWidth * ( u01.x - 0.5f ) + yaxis * faceWidth * ( u01.y - 0.5f );
-				float3 dir = pLight - hitP;
-				float3 ndir = normalize( dir );
-				float cosTheta0 = dot( ndir, hitN );
-				float cosTheta1 = dot( -ndir, faceNormal );
-				float G = cosTheta0 * cosTheta1 / dot( dir, dir );
-				float oneOverPdfA = faceWidth * faceWidth;
-
-				if( 0.0f < cosTheta0 && 0.0f < cosTheta1 && 0.0f < selectedpHut && G < kGThreshold )
-				{
-					float t = MAX_FLOAT;
-					int nMajor;
-					uint32_t vIndexShadow = 0;
-					intersector.intersect( stack, pLight, -dir, &t, &nMajor, &vIndexShadow );
-					if( vIndexShadow == vIndex )
-					{
-						float3 contrib = T * ( R / PI ) * G * emission * oneOverPdfA * wRIS;
-						L += contrib;
-					}
-				}
-			}
-#endif
-
-			T *= R;
 
 			float2 u01 = SAMPLE_2D();
-			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
+			float2 u23 = SAMPLE_2D();
+			float3 dir;
+
+			bool specularSample = false;
+			float specularReflectance = fresnelSchlick( dot( normalize( -rd ), hitN ), 1.0f, 1.5f );
+			if( u23.x < specularReflectance )
+			{
+				specularSample = true;
+				dir = reflect( rd, hitN );
+			}
+			else
+			{
+				T *= R;
+				dir = sampleLambertian( u01.x, u01.y, hitN );
+			}
 
 			ro = hitP; // no self intersection
 			rd = dir;
@@ -981,34 +899,17 @@ extern "C" __global__ void renderPT(
 			t = MAX_FLOAT;
 			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 
-#if 1
 			if( t != MAX_FLOAT )
 			{
 				float3 Le = intersector.getVoxelEmission( vIndex );
 				L += T * Le;
 			}
-#else
-			if( t != MAX_FLOAT )
-			{
-				float3 faceNormal = getHitN( nMajor, rd );
-				float cosTheta0 = dot( dir, hitN );
-				float cosTheta1 = dot( -dir, faceNormal );
-				float G = cosTheta0 * cosTheta1 / ( t * t );
-				if( kGThreshold <= G )
-				{
-					float3 Le = intersector.getVoxelEmission( vIndex );
-					L += T * Le;
-				}
-			}
-#endif
 
-#if 0
-			if( t == MAX_FLOAT )
+			if( hdri.isEnabled() && t == MAX_FLOAT && specularSample )
 			{
 				float3 env = hdri.sampleNearest( rd );
 				L += T * env;
 			}
-#endif
 		}
 
 #undef SAMPLE_2D

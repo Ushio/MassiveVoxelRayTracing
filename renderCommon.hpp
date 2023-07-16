@@ -276,7 +276,7 @@ struct HDRI
 		int y = (int)ss_clamp( uv.y * m_height, 0.0f, (float)( m_height - 1.0f ) );
 		uint64_t index = (uint64_t)y * m_width + x;
 		float4 c = m_pixels[index];
-		return { c.x, c.y, c.z };
+		return float3 { c.x, c.y, c.z } * m_scale;
 	}
 #endif
 	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, float u0, float u1, float u2, float u3 ) const
@@ -380,7 +380,7 @@ struct HDRI
 		*srPDF = pSelection / sr;
 
 		float4 color = m_pixels[Y * m_width + X];
-		*L = { color.x, color.y, color.z };
+		*L = float3{ color.x, color.y, color.z } * m_scale;
 	}
 
 	DEVICE uint32_t getPrefixSumExclusiveH( const uint32_t* sat, uint32_t x ) const
@@ -413,11 +413,17 @@ struct HDRI
 		return ( d - b ) + ( a - c );
 	}
 
+	DEVICE bool isEnabled() const
+	{
+		return 0.0f < m_scale;
+	}
+
 	float4* m_pixels = 0;
 	uint32_t* m_sat = 0;
 	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
+	float m_scale = 0.0f;
 };
 
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
@@ -452,3 +458,16 @@ struct LCGShuffler
 	}
 #endif
 };
+
+DEVICE inline float fresnelSchlick( float cosTheta, float n1, float n2 )
+{
+	float r = ( n1 - n2 ) / ( n1 + n2 );
+	float R0 = r * r;
+	float k = 1.0f - cosTheta;
+	float kk = k * k;
+	return R0 + ( 1.0f - R0 ) * kk * kk * k;
+}
+DEVICE inline float3 reflect( float3 I, float3 N )
+{
+	return I - N * dot( N, I ) * 2.0f;
+}
