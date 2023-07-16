@@ -186,6 +186,16 @@ struct IntersectorOctreeGPU
 			}
 			oroMalloc( (oroDeviceptr*)&m_emissiveSurfaces, sizeof( EmissiveSurface ) * m_numberOfEmissiveSurfaces );
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
+
+			LCGShuffler shuffler;
+			if( m_numberOfEmissiveSurfaces )
+			{
+				PCG32 rng;
+				rng.setup( 123, 0 );
+				while( shuffler.tryInit( rng.nextU32(), rng.nextU32(), m_numberOfEmissiveSurfaces ) == false )
+					;
+			}
+
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
@@ -194,6 +204,7 @@ struct IntersectorOctreeGPU
 			args.add( m_emissiveSurfaces );
 			args.add( float3{ origin.x, origin.y, origin.z } );
 			args.add( dps );
+			args.add( shuffler );
 			voxKernel->launch( "gatherEmissiveSurfaces", args, div_round_up64( m_numberOfVoxels, 256 ), 1, 1, 256, 1, 1, stream );
 		}
 

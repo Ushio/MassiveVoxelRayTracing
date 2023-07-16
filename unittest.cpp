@@ -9,6 +9,34 @@
 
 UTEST_MAIN();
 
+UTEST( linear_congruential_generator, random )
+{
+	using namespace pr;
+	Xoshiro128StarStar random;
+
+	for( int i = 0; i < 1000000; i++ )
+	{
+		LCGShuffler shuffler;
+
+		int N = 1 + ( random.uniformi() % 1000 );
+		std::vector<int> xs( N );
+
+		int itr = 0;
+		while( shuffler.tryInit( random.uniformi(), random.uniformi(), N ) == false )
+			itr++;
+
+		for (int j = 0; j < N; j++)
+		{
+			xs[shuffler( j )] = 1;
+		}
+
+		for (int j = 0; j < N; j++)
+		{
+			ASSERT_EQ( xs[j], 1 );
+		}
+	}
+	
+}
 UTEST( search, random )
 {
 	using namespace pr;

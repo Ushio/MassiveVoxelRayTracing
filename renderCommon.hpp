@@ -419,3 +419,36 @@ struct HDRI
 	int m_width = 0;
 	int m_height = 0;
 };
+
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+inline uint32_t gcd( uint32_t a, uint32_t b )
+{
+	if( b == 0 )
+		return a;
+	return gcd( b, a % b );
+}
+#endif
+
+// from "Bandwidth-Optimal Random Shuffling for GPUs"
+struct LCGShuffler
+{
+	uint32_t a = 1;
+	uint32_t c = 0;
+	uint32_t n = 0;
+
+	// ( a * x + c ) mod n
+	DEVICE uint32_t operator()( uint32_t i ) const
+	{
+		return ( static_cast<uint64_t>( i ) * a + c ) % n;
+	}
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	// return true if succeeded
+	bool tryInit( uint32_t r0, uint32_t r1, uint32_t numberOfElement )
+	{
+		a = r0;
+		c = r1;
+		n = numberOfElement;
+		return gcd( a, n ) == 1;
+	}
+#endif
+};

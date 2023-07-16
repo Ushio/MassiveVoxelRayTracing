@@ -321,7 +321,7 @@ extern "C" __global__ void countEmissiveSurfaces( const uint64_t* mortonVoxels, 
 		}
 	}
 }
-extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveSurface* emissiveSurfaces, float3 origin, float dps )
+extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels, const VoxelAttirb* voxelAttribs, uint32_t numberOfVoxels, uint32_t* counter, EmissiveSurface* emissiveSurfaces, float3 origin, float dps, LCGShuffler shuffler )
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if( i < numberOfVoxels )
@@ -346,38 +346,38 @@ extern "C" __global__ void gatherEmissiveSurfaces( const uint64_t* mortonVoxels,
 
 			if( noXp )
 			{
-				emissiveSurfaces[h].pivot = center + float3{ dps / 4.0f, 0.0f, 0.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center + float3{ dps / 4.0f, 0.0f, 0.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 			if( noXm )
 			{
-				emissiveSurfaces[h].pivot = center - float3{ dps / 4.0f, 0.0f, 0.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center - float3{ dps / 4.0f, 0.0f, 0.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 			if( noYp )
 			{
-				emissiveSurfaces[h].pivot = center + float3{ 0.0f, dps / 4.0f, 0.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, dps / 4.0f, 0.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 			if( noYm )
 			{
-				emissiveSurfaces[h].pivot = center - float3{ 0.0f, dps / 4.0f, 0.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, dps / 4.0f, 0.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 			if( noZp )
 			{
-				emissiveSurfaces[h].pivot = center + float3{ 0.0f, 0.0f, dps / 4.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center + float3{ 0.0f, 0.0f, dps / 4.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 			if( noZm )
 			{
-				emissiveSurfaces[h].pivot = center - float3{ 0.0f, 0.0f, dps / 4.0f };
-				emissiveSurfaces[h].emission = emission;
+				emissiveSurfaces[shuffler( h )].pivot = center - float3{ 0.0f, 0.0f, dps / 4.0f };
+				emissiveSurfaces[shuffler( h )].emission = emission;
 				h++;
 			}
 		}
@@ -847,7 +847,7 @@ extern "C" __global__ void renderPT(
 			L += T * Le;
 		}
 
-		const float kGThreshold = 1.0f / 4.0f;
+		const float kGThreshold = 1.0f / 16.0f;
 
 		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
 		{
@@ -877,37 +877,36 @@ extern "C" __global__ void renderPT(
 			}
 #endif
 
-#if 1
+#if 0
 			{ // Explicit
 				float faceWidth = intersector.getFaceWidth();
 				float sPdf = 1.0f / (float)intersector.getNumberOfEmissiveSurfaces();
 
 				// RIS
-				int N = 32;
+				int N = 16;
 				float ws = 0.0f;
 				uint32_t selectedFaceIndex = 0;
 				float selectedpHut = 0.0f;
 
 				float u = SAMPLE_2D().x;
-
+				uint32_t home = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
 				for( int i = 0; i < N; i++ )
 				{
-					uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
+					// uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
+					uint32_t faceIndex = ( home + i ) % intersector.getNumberOfEmissiveSurfaces();
 					float3 faceNormal;
 					float3 faceCenter;
 					float3 emission;
 					intersector.getEmissiveFace( faceIndex, &faceNormal, &faceCenter, &emission );
 
 					float3 pLight = faceCenter;
-
 					float3 dir = pLight - hitP;
 					float3 ndir = normalize( dir );
 					float cosTheta0 = max( dot( ndir, hitN ), 0.0f );
 					float cosTheta1 = max( dot( -ndir, faceNormal ), 0.0f );
 					float d2 = dot( dir, dir );
 					float G = cosTheta0 * cosTheta1 / d2;
-
-					float pHut = luminance( T * R * G * emission );
+					float pHut = G;
 					float w = pHut / sPdf;
 
 					ws = ws + w;
@@ -982,7 +981,7 @@ extern "C" __global__ void renderPT(
 			t = MAX_FLOAT;
 			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
 
-#if 0
+#if 1
 			if( t != MAX_FLOAT )
 			{
 				float3 Le = intersector.getVoxelEmission( vIndex );
