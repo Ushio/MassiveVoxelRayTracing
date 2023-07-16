@@ -1,10 +1,10 @@
 #include "vectorMath.hpp"
 #include "voxelization.hpp"
 
-#include "voxCommon.hpp"
 #include "IntersectorOctreeGPU.hpp"
-#include "renderCommon.hpp"
 #include "pmjSampler.hpp"
+#include "renderCommon.hpp"
+#include "voxCommon.hpp"
 
 // method to seperate bits from a given integer 3 positions apart
 __device__ inline uint64_t splitBy3( uint32_t a )
@@ -54,95 +54,95 @@ __device__ void clearShared( T* sMem, T value )
 	}
 }
 
-extern "C" __global__ void voxCount( const float3 *vertices, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
+extern "C" __global__ void voxCount( const float3* vertices, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
 {
-    uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if( iTri < nTriangles )
-    {
-        float3 v0 = vertices[iTri * 3];
-        float3 v1 = vertices[iTri * 3 + 1];
-        float3 v2 = vertices[iTri * 3 + 2];
+	if( iTri < nTriangles )
+	{
+		float3 v0 = vertices[iTri * 3];
+		float3 v1 = vertices[iTri * 3 + 1];
+		float3 v2 = vertices[iTri * 3 + 2];
 
-        bool sixSeparating = true;
-        VTContext context( v0, v1, v2, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
-        int2 xrange = context.xRangeInclusive();
-        uint32_t nVoxels = 0;
-        for( int x = xrange.x; x <= xrange.y; x++ )
-        {
-            int2 yrange = context.yRangeInclusive( x, dps );
-            for( int y = yrange.x; y <= yrange.y; y++ )
-            {
-                int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
-                for( int z = zrange.x; z <= zrange.y; z++ )
-                {
-                    float3 p = context.p( x, y, z, dps );
-                    if( context.intersect( p ) )
-                    {
-                        nVoxels++;
-                    }
-                }
-            }
-        }
-        atomicAdd( counter, nVoxels );
-    }
+		bool sixSeparating = true;
+		VTContext context( v0, v1, v2, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
+		int2 xrange = context.xRangeInclusive();
+		uint32_t nVoxels = 0;
+		for( int x = xrange.x; x <= xrange.y; x++ )
+		{
+			int2 yrange = context.yRangeInclusive( x, dps );
+			for( int y = yrange.x; y <= yrange.y; y++ )
+			{
+				int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
+				for( int z = zrange.x; z <= zrange.y; z++ )
+				{
+					float3 p = context.p( x, y, z, dps );
+					if( context.intersect( p ) )
+					{
+						nVoxels++;
+					}
+				}
+			}
+		}
+		atomicAdd( counter, nVoxels );
+	}
 }
 extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolors, const float3* vemissions, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes, uint64_t* mortonVoxels, VoxelAttirb* voxelAttribs )
 {
-    uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if( iTri < nTriangles )
-    {
-        float3 v0 = vertices[iTri * 3];
-        float3 v1 = vertices[iTri * 3 + 1];
-        float3 v2 = vertices[iTri * 3 + 2];
+	if( iTri < nTriangles )
+	{
+		float3 v0 = vertices[iTri * 3];
+		float3 v1 = vertices[iTri * 3 + 1];
+		float3 v2 = vertices[iTri * 3 + 2];
 
-        float3 c0 = vcolors[iTri * 3];
-        float3 c1 = vcolors[iTri * 3 + 1];
-        float3 c2 = vcolors[iTri * 3 + 2];
+		float3 c0 = vcolors[iTri * 3];
+		float3 c1 = vcolors[iTri * 3 + 1];
+		float3 c2 = vcolors[iTri * 3 + 2];
 
 		float3 e0 = vemissions[iTri * 3];
 		float3 e1 = vemissions[iTri * 3 + 1];
 		float3 e2 = vemissions[iTri * 3 + 2];
 
-        bool sixSeparating = true;
-        VTContext context( v0, v1, v2, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
-        int2 xrange = context.xRangeInclusive();
-        uint32_t nVoxels = 0;
-        for( int x = xrange.x; x <= xrange.y; x++ )
-        {
-            int2 yrange = context.yRangeInclusive( x, dps );
-            for( int y = yrange.x; y <= yrange.y; y++ )
-            {
-                int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
-                for( int z = zrange.x; z <= zrange.y; z++ )
-                {
-                    float3 p = context.p( x, y, z, dps );
-                    if( context.intersect( p ) )
-                    {
-                        nVoxels++;
-                    }
-                }
-            }
-        }
-        uint32_t dstLocation = atomicAdd( counter, nVoxels );
-        nVoxels = 0;
+		bool sixSeparating = true;
+		VTContext context( v0, v1, v2, sixSeparating, { origin.x, origin.y, origin.z }, dps, gridRes );
+		int2 xrange = context.xRangeInclusive();
+		uint32_t nVoxels = 0;
+		for( int x = xrange.x; x <= xrange.y; x++ )
+		{
+			int2 yrange = context.yRangeInclusive( x, dps );
+			for( int y = yrange.x; y <= yrange.y; y++ )
+			{
+				int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
+				for( int z = zrange.x; z <= zrange.y; z++ )
+				{
+					float3 p = context.p( x, y, z, dps );
+					if( context.intersect( p ) )
+					{
+						nVoxels++;
+					}
+				}
+			}
+		}
+		uint32_t dstLocation = atomicAdd( counter, nVoxels );
+		nVoxels = 0;
 
-        for( int x = xrange.x; x <= xrange.y; x++ )
-        {
-            int2 yrange = context.yRangeInclusive( x, dps );
-            for( int y = yrange.x; y <= yrange.y; y++ )
-            {
-                int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
-                for( int z = zrange.x; z <= zrange.y; z++ )
-                {
-                    float3 p = context.p( x, y, z, dps );
-                    if( context.intersect( p ) )
-                    {
-                        int3 c = context.i( x, y, z );
-                        mortonVoxels[dstLocation + nVoxels] = encode2mortonCode_magicbits( c.x, c.y, c.z );
+		for( int x = xrange.x; x <= xrange.y; x++ )
+		{
+			int2 yrange = context.yRangeInclusive( x, dps );
+			for( int y = yrange.x; y <= yrange.y; y++ )
+			{
+				int2 zrange = context.zRangeInclusive( x, y, dps, sixSeparating );
+				for( int z = zrange.x; z <= zrange.y; z++ )
+				{
+					float3 p = context.p( x, y, z, dps );
+					if( context.intersect( p ) )
+					{
+						int3 c = context.i( x, y, z );
+						mortonVoxels[dstLocation + nVoxels] = encode2mortonCode_magicbits( c.x, c.y, c.z );
 
-                        float3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
+						float3 bc = closestBarycentricCoordinateOnTriangle( v0, v1, v2, p );
 						float3 bColor = bc.x * c1 + bc.y * c2 + bc.z * c0;
 						float3 bEmission = bc.x * e1 + bc.y * e2 + bc.z * e0;
 
@@ -154,13 +154,13 @@ extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolo
 							(uint8_t)( bEmission.x * 255.0f + 0.5f ),
 							(uint8_t)( bEmission.y * 255.0f + 0.5f ),
 							(uint8_t)( bEmission.z * 255.0f + 0.5f ), 255 };
-                        
-                        nVoxels++;
-                    }
-                }
-            }
-        }
-    }
+
+						nVoxels++;
+					}
+				}
+			}
+		}
+	}
 }
 
 #define UNIQUE_BLOCK_SIZE 2048
@@ -170,28 +170,29 @@ extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolo
 template <int BLOCK_SIZE>
 struct StreamCompaction64
 {
-    enum { 
-        THREADS = 64,
-        NUMBER_OF_STEPS = BLOCK_SIZE / THREADS
-    };
+	enum
+	{
+		THREADS = 64,
+		NUMBER_OF_STEPS = BLOCK_SIZE / THREADS
+	};
 	uint32_t gp;
 	uint64_t leaderMasks[NUMBER_OF_STEPS];
 
-    __device__ void init()
-    {
+	__device__ void init()
+	{
 		clearShared<NUMBER_OF_STEPS, THREADS, uint64_t>( leaderMasks, 0 );
 		__syncthreads();
-    }
+	}
 	__device__ int steps() const { return NUMBER_OF_STEPS; }
 	__device__ uint32_t itemIndex( int step ) const { return blockIdx.x * BLOCK_SIZE + step * THREADS + threadIdx.x; }
 	__device__ void vote( int step )
-    {
+	{
 		atomicOr( &leaderMasks[step], 1llu << threadIdx.x );
-    }
+	}
 
-    // return global prefix
-    __device__ uint32_t synchronize( uint64_t* iterator )
-    {
+	// return global prefix
+	__device__ uint32_t synchronize( uint64_t* iterator )
+	{
 		__syncthreads();
 
 		if( threadIdx.x == 0 )
@@ -220,19 +221,19 @@ struct StreamCompaction64
 		__syncthreads();
 
 		return gp;
-    }
+	}
 
 	// return destination. If it is not voted, return -1
 	__device__ uint32_t destination( int step, uint32_t* globalPrefix ) const
-    {
+	{
 		uint64_t mask = leaderMasks[step];
 		bool voted = ( mask & ( 1llu << threadIdx.x ) ) != 0;
 		uint64_t lowerMask = ( 1llu << threadIdx.x ) - 1;
 		uint32_t offset = __popcll( mask & lowerMask );
-        uint32_t d = *globalPrefix + offset;
+		uint32_t d = *globalPrefix + offset;
 		*globalPrefix += __popcll( mask );
 		return voted ? d : -1;
-    }
+	}
 };
 
 extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const VoxelAttirb* inputVoxelAttribs, VoxelAttirb* outputVoxelAttribs, uint32_t totalDumpedVoxels, uint64_t* iterator )
@@ -240,7 +241,7 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	__shared__ StreamCompaction64<UNIQUE_BLOCK_SIZE> streamCompaction;
 	streamCompaction.init();
 
-	for (int i = 0; i < streamCompaction.steps(); i++)
+	for( int i = 0; i < streamCompaction.steps(); i++ )
 	{
 		uint32_t itemIndex = streamCompaction.itemIndex( i );
 		if( itemIndex < totalDumpedVoxels )
@@ -308,11 +309,11 @@ extern "C" __global__ void countEmissiveSurfaces( const uint64_t* mortonVoxels, 
 			uint32_t x, y, z;
 			decodeMortonCode_magicBits( mortonVoxels[i], &x, &y, &z );
 
-			bool noXp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
+			bool noXp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x + 1, y, z ) ) == -1;
 			bool noXm = x == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x - 1, y, z ) ) == -1;
-			bool noYp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
+			bool noYp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y + 1, z ) ) == -1;
 			bool noYm = y == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y - 1, z ) ) == -1;
-			bool noZp =           bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
+			bool noZp = bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z + 1 ) ) == -1;
 			bool noZm = z == 0 || bSearch( mortonVoxels, numberOfVoxels, encode2mortonCode_magicbits( x, y, z - 1 ) ) == -1;
 
 			uint32_t nface = (uint32_t)noXp + (uint32_t)noXm + (uint32_t)noYp + (uint32_t)noYm + (uint32_t)noZp + (uint32_t)noZm;
@@ -389,9 +390,9 @@ __device__ uint64_t g_octreeIterator1;
 extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks, uint32_t* taskCounters, uint32_t gridRes )
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if( i < numberOfVoxels )
-    {
-		uint64_t mortonL = inputMortonVoxels[max( i - 1, 0)];
+	if( i < numberOfVoxels )
+	{
+		uint64_t mortonL = inputMortonVoxels[max( i - 1, 0 )];
 		uint64_t mortonR = inputMortonVoxels[i];
 
 		outputOctreeTasks[i].morton = mortonR;
@@ -407,19 +408,19 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 			}
 			iteration++;
 		}
-    }
+	}
 
-    if( i == 0 )
-    {
+	if( i == 0 )
+	{
 		g_octreeIterator0 = 0;
-    }
+	}
 }
 
 #define BOTTOM_UP_BLOCK_SIZE 4096
-extern "C" __global__ void bottomUpOctreeBuild( 
+extern "C" __global__ void bottomUpOctreeBuild(
 	int iteration,
-	const OctreeTask* inputOctreeTasks, uint32_t nInput, 
-	OctreeTask* outputOctreeTasks, 
+	const OctreeTask* inputOctreeTasks, uint32_t nInput,
+	OctreeTask* outputOctreeTasks,
 	OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes,
 	uint32_t* lpBuffer, uint32_t lpSize )
 {
@@ -475,7 +476,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 				nVoxelsPSum[j] = numberOfVoxels;
 				numberOfVoxels += c;
 			}
-			
+
 			// Non DAG
 #if !defined( ENABLE_GPU_DAG )
 			uint32_t nodeIndex = atomicInc( nOutputNodes, 0xFFFFFFFF );
@@ -545,14 +546,14 @@ extern "C" __global__ void bottomUpOctreeBuild(
 				uint32_t otherNodeIndex = v & LP_VALUE_BIT;
 				bool isEqual = outputOctreeNodes[otherNodeIndex].mask == mask;
 				if( isEqual )
-				for( int j = 0; j < 8; j++ )
-				{
-					if( outputOctreeNodes[otherNodeIndex].children[j] != children[j] )
+					for( int j = 0; j < 8; j++ )
 					{
-						isEqual = false;
-						break;
+						if( outputOctreeNodes[otherNodeIndex].children[j] != children[j] )
+						{
+							isEqual = false;
+							break;
+						}
 					}
-				}
 				if( isEqual )
 				{
 					nodeIndex = otherNodeIndex;
@@ -572,7 +573,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 #endif
 	}
 
-    if( iteration % 2 == 0 )
+	if( iteration % 2 == 0 )
 	{
 		if( threadIdx.x == 0 && blockIdx.x == 0 )
 			g_octreeIterator1 = 0;
@@ -584,8 +585,8 @@ extern "C" __global__ void bottomUpOctreeBuild(
 	}
 }
 
-extern "C" __global__ void render( 
-	uchar4* frameBuffer, int2 resolution, 
+extern "C" __global__ void render(
+	uchar4* frameBuffer, int2 resolution,
 	uint32_t* taskCounter, StackElement* stackBuffer,
 	CameraPinhole pinhole,
 	IntersectorOctreeGPU intersector,
@@ -595,7 +596,7 @@ extern "C" __global__ void render(
 
 	StackElement* stack = stackBuffer + blockIdx.x * 32 * blockDim.x + threadIdx.x * 32;
 
-	for (;; )
+	for( ;; )
 	{
 		if( threadIdx.x == 0 )
 		{
@@ -637,7 +638,7 @@ extern "C" __global__ void render(
 	}
 }
 
-extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double *sat, int cosWeighted, float3 axis )
+extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double* sat, int cosWeighted, float3 axis )
 {
 	uint32_t pixelX = blockIdx.x * blockDim.x + threadIdx.x;
 	uint32_t pixelY = blockIdx.y * blockDim.y + threadIdx.y;
@@ -675,7 +676,7 @@ extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resol
 		w = ss_max( dot( axis, dirCenter ), 0.0f );
 	}
 
-	sat[pixelIdx] = ( 0.2126f * color.x + 0.7152 * color.y + 0.0722 * color.z ) * sr * w;
+	sat[pixelIdx] = luminance( color ) * sr * w;
 }
 
 template <class T, int NThreads>
@@ -826,37 +827,35 @@ extern "C" __global__ void renderPT(
 
 		float3 T = { 1.0f, 1.0f, 1.0f };
 		float3 L = {};
-		for( int depth = 0; depth < 1; depth++ )
+
+		float t = MAX_FLOAT;
+		int nMajor;
+		uint32_t vIndex = 0;
+		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+
+		// Primary emissions:
+		if( t == MAX_FLOAT )
 		{
-			float t = MAX_FLOAT;
-			int nMajor;
-			uint32_t vIndex = 0;
-			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+			// float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
+			// float3 env = { I, I, I };
+			float3 env = hdri.sampleNearest( rd );
+			L += T * env;
+		}
+		else
+		{
+			float3 Le = intersector.getVoxelEmission( vIndex );
+			L += T * Le;
+		}
 
-			// Emission
-			if( depth == 0 )
-			{
-				float3 Le = linearReflectance( intersector.getVoxelEmission( vIndex ) );
-				L += T * Le;
-			}
+		const float kGThreshold = 1.0f;
 
-			if( t == MAX_FLOAT )
-			{
-				//float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
-				//float3 env = { I, I, I };
-				if (depth == 0)
-				{
-					float3 env = hdri.sampleNearest( rd );
-					L += T * env;
-				}
-				break;
-			}
-
+		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
+		{
 			float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;
 
-			#if 0
+#if 0
 			{ // Explicit
 				float2 u01 = SAMPLE_2D();
 				float2 u23 = SAMPLE_2D();
@@ -876,13 +875,50 @@ extern "C" __global__ void renderPT(
 					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
 				}
 			}
-			#endif
+#endif
 
-			#if 1
+#if 1
 			{ // Explicit
 				float faceWidth = intersector.getFaceWidth();
 				float sPdf = 1.0f / (float)intersector.getNumberOfEmissiveSurfaces();
-				uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
+
+				// RIS
+				int N = 32;
+				float ws = 0.0f;
+				uint32_t selectedFaceIndex = 0;
+				float selectedpHut = 0.0f;
+
+				for( int i = 0; i < N; i++ )
+				{
+					uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
+					float3 faceNormal;
+					float3 faceCenter;
+					float3 emission;
+					intersector.getEmissiveFace( faceIndex, &faceNormal, &faceCenter, &emission );
+
+					float3 pLight = faceCenter;
+
+					float3 dir = pLight - hitP;
+					float3 ndir = normalize( dir );
+					float cosTheta0 = max( dot( ndir, hitN ), 0.0f );
+					float cosTheta1 = max( dot( -ndir, faceNormal ), 0.0f );
+					float d2 = dot( dir, dir );
+					float G = cosTheta0 * cosTheta1 / d2;
+
+					float pHut = luminance( T * R * G * emission );
+					float w = pHut / sPdf;
+
+					ws = ws + w;
+
+					if( uniformf( rng.nextU32() ) < w / ws )
+					{
+						selectedFaceIndex = faceIndex;
+						selectedpHut = pHut;
+					}
+				}
+				float wRIS = ws / ( N * selectedpHut );
+				uint32_t faceIndex = selectedFaceIndex;
+
 				float3 faceNormal;
 				float3 faceCenter;
 				float3 emission;
@@ -893,14 +929,14 @@ extern "C" __global__ void renderPT(
 
 				float2 u01 = SAMPLE_2D();
 				float3 pLight = faceCenter + xaxis * faceWidth * ( u01.x - 0.5f ) + yaxis * faceWidth * ( u01.y - 0.5f );
-
 				float3 dir = pLight - hitP;
 				float3 ndir = normalize( dir );
 				float cosTheta0 = dot( ndir, hitN );
 				float cosTheta1 = dot( -ndir, faceNormal );
 				float G = cosTheta0 * cosTheta1 / dot( dir, dir );
 				float oneOverPdfA = faceWidth * faceWidth;
-				if( 0.0f < cosTheta0 && 0.0001f < cosTheta1 )
+
+				if( 0.0f < cosTheta0 && 0.0f < cosTheta1 && 0.0f < selectedpHut && G < kGThreshold )
 				{
 					float t = MAX_FLOAT;
 					int nMajor;
@@ -908,26 +944,58 @@ extern "C" __global__ void renderPT(
 					intersector.intersect( stack, pLight, -dir, &t, &nMajor, &vIndexShadow );
 					if( vIndexShadow == vIndex )
 					{
-						L += T * ( R / PI ) * G * emission * oneOverPdfA / sPdf;
+						float3 contrib = T * ( R / PI ) * G * emission * oneOverPdfA * wRIS;
+						L += contrib;
 					}
 				}
 			}
-			#endif
+#endif
 
 			T *= R;
-			
+
 			float2 u01 = SAMPLE_2D();
 			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
 			ro = hitP; // no self intersection
 			rd = dir;
+
+			t = MAX_FLOAT;
+			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+
+#if 0
+			if( t != MAX_FLOAT )
+			{
+				float3 Le = intersector.getVoxelEmission( vIndex );
+				L += T * Le;
+			}
+#else
+			if( t != MAX_FLOAT )
+			{
+				float3 faceNormal = getHitN( nMajor, rd );
+				float cosTheta0 = dot( dir, hitN );
+				float cosTheta1 = dot( -dir, faceNormal );
+				float G = cosTheta0 * cosTheta1 / ( t * t );
+				if( kGThreshold <= G )
+				{
+					float3 Le = intersector.getVoxelEmission( vIndex );
+					L += T * Le;
+				}
+			}
+#endif
+
+#if 0
+			if( t == MAX_FLOAT )
+			{
+				float3 env = hdri.sampleNearest( rd );
+				L += T * env;
+			}
+#endif
 		}
 
 #undef SAMPLE_2D
 		atomicAdd( &localPixelValueXs[localPixel], L.x );
 		atomicAdd( &localPixelValueYs[localPixel], L.y );
 		atomicAdd( &localPixelValueZs[localPixel], L.z );
-
 	}
 
 	__syncthreads();

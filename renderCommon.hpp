@@ -122,6 +122,12 @@ DEVICE inline float3 linearReflectance( uchar4 color )
 		INTRIN_POW( (float)color.z / 255.0f, 2.2f ) };
 }
 
+template <class T>
+DEVICE inline float luminance( T color )
+{
+	return 0.2126f * color.x + 0.7152f * color.y + 0.0722f * color.z;
+}
+
 // forward: +x, up: +y
 DEVICE inline float2 getSpherical( float3 n )
 {

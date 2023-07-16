@@ -317,9 +317,13 @@ struct IntersectorOctreeGPU
 	{
 		return m_vAttributeBuffer[vIndex].color;
 	}
-	DEVICE uchar4 getVoxelEmission( uint32_t vIndex ) const
+	//DEVICE uchar4 getVoxelEmission( uint32_t vIndex ) const
+	//{
+	//	return m_vAttributeBuffer[vIndex].emission;
+	//}
+	DEVICE float3 getVoxelEmission( uint32_t vIndex ) const
 	{
-		return m_vAttributeBuffer[vIndex].emission;
+		return linearReflectance( m_vAttributeBuffer[vIndex].emission ) * m_emissionScale;
 	}
 	DEVICE uint32_t getNumberOfEmissiveSurfaces() const 
 	{ 
@@ -340,7 +344,7 @@ struct IntersectorOctreeGPU
 
 		*faceNormal = n;
 		*faceCenter = f.pivot + dir;
-		*emission = linearReflectance( f.emission );
+		*emission = linearReflectance( f.emission ) * m_emissionScale;
 	}
 #endif
 	VoxelAttirb* m_vAttributeBuffer = 0;
@@ -356,6 +360,8 @@ struct IntersectorOctreeGPU
 	float3 m_lower;
 	float3 m_upper;
 	float m_dps = 0.0f;
+
+	float m_emissionScale = 2.0f;
 };
 
 template <class T>
