@@ -179,7 +179,7 @@ struct OctreeNode
 
 #define SMALL_STACK 1
 #if defined( SMALL_STACK )
-struct StackElement
+struct alignas(16) StackElement
 {
 	uint32_t nodeIndex;
 	float tx0;
