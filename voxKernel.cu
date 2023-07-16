@@ -847,7 +847,7 @@ extern "C" __global__ void renderPT(
 			L += T * Le;
 		}
 
-		const float kGThreshold = 1.0f;
+		const float kGThreshold = 1.0f / 4.0f;
 
 		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
 		{
@@ -888,6 +888,8 @@ extern "C" __global__ void renderPT(
 				uint32_t selectedFaceIndex = 0;
 				float selectedpHut = 0.0f;
 
+				float u = SAMPLE_2D().x;
+
 				for( int i = 0; i < N; i++ )
 				{
 					uint32_t faceIndex = rng.nextU32() % intersector.getNumberOfEmissiveSurfaces();
@@ -910,12 +912,30 @@ extern "C" __global__ void renderPT(
 
 					ws = ws + w;
 
-					if( uniformf( rng.nextU32() ) < w / ws )
+					//if( ws == 0.0f || uniformf( rng.nextU32() ) < w / ws )
+					//{
+					//	selectedFaceIndex = faceIndex;
+					//	selectedpHut = pHut;
+					//}
+
+					float p = w / ws;
+					if( ws == 0.0f )
 					{
 						selectedFaceIndex = faceIndex;
 						selectedpHut = pHut;
 					}
+					else if( u < p )
+					{
+						selectedFaceIndex = faceIndex;
+						selectedpHut = pHut;
+						u = u / p;
+					}
+					else
+					{
+						u = ( u - p ) / ( 1.0f - p );
+					}
 				}
+
 				float wRIS = ws / ( N * selectedpHut );
 				uint32_t faceIndex = selectedFaceIndex;
 
