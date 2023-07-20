@@ -305,11 +305,12 @@ DEVICE void octreeTraverse_EfficientParametric(
 		{
 			if( 0.0f < S_lmax ) // positive hit point only
 			{
-				*t = S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
+				*t = S_lmax;
 				*nMajor =
-					S_lmax == tx0 ? 1 : ( S_lmax == ty0 ? 2 : 0 );
-
+					S_lmax == tx0 ? 1 : 
+						( S_lmax == ty0 ? 2 : 0 );
 				*vIndex = cur.nVoxelSkipped;
+
 				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
 				break;
 			}
