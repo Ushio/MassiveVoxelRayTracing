@@ -817,9 +817,6 @@ extern "C" __global__ void renderPT(
 		rng.setup( 0, hash.getHash() );
 #define SAMPLE_2D() float2{ uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) }
 #endif
-		hash.combine( spp );
-		PCG32 rng;
-		rng.setup( 0, hash.getHash() );
 
 		float2 cam_u01 = SAMPLE_2D();
 		float3 ro, rd;
