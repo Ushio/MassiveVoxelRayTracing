@@ -865,8 +865,6 @@ extern "C" __global__ void renderPT(
 				float p;
 				hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
 
-				float specularReflectance = fresnelSchlick( dot( normalize( -rd ), hitN ), 1.0f, 1.5f );
-
 				// no self intersection
 				float t = MAX_FLOAT;
 				int nMajor;
@@ -874,26 +872,15 @@ extern "C" __global__ void renderPT(
 				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
 				if( t == MAX_FLOAT )
 				{
-					L += ( 1.0f - specularReflectance ) * T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
+					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
 				}
 			}
 
 			float2 u01 = SAMPLE_2D();
 			float2 u23 = SAMPLE_2D();
-			float3 dir;
 
-			bool specularSample = false;
-			float specularReflectance = fresnelSchlick( dot( normalize( -rd ), hitN ), 1.0f, 1.5f );
-			if( u23.x < specularReflectance )
-			{
-				specularSample = true;
-				dir = reflect( rd, hitN );
-			}
-			else
-			{
-				T *= R;
-				dir = sampleLambertian( u01.x, u01.y, hitN );
-			}
+			T *= R;
+			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
 			ro = hitP; // no self intersection
 			rd = dir;
@@ -905,12 +892,6 @@ extern "C" __global__ void renderPT(
 			{
 				float3 Le = intersector.getVoxelEmission( vIndex, true );
 				L += T * Le;
-			}
-
-			if( hdri.isEnabled() && t == MAX_FLOAT && specularSample )
-			{
-				float3 env = hdri.sampleNearest( rd );
-				L += T * env;
 			}
 		}
 

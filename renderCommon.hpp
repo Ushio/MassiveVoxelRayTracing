@@ -466,17 +466,15 @@ struct LCGShuffler
 #endif
 };
 
-DEVICE inline float fresnelSchlick( float cosTheta, float n1, float n2 )
-{
-	return 0.0f;
-
-	float r = ( n1 - n2 ) / ( n1 + n2 );
-	float R0 = r * r;
-	float k = 1.0f - cosTheta;
-	float kk = k * k;
-	return R0 + ( 1.0f - R0 ) * kk * kk * k;
-}
-DEVICE inline float3 reflect( float3 I, float3 N )
-{
-	return I - N * dot( N, I ) * 2.0f;
-}
+//DEVICE inline float fresnelSchlick( float cosTheta, float n1, float n2 )
+//{
+//	float r = ( n1 - n2 ) / ( n1 + n2 );
+//	float R0 = r * r;
+//	float k = 1.0f - cosTheta;
+//	float kk = k * k;
+//	return R0 + ( 1.0f - R0 ) * kk * kk * k;
+//}
+//DEVICE inline float3 reflect( float3 I, float3 N )
+//{
+//	return I - N * dot( N, I ) * 2.0f;
+//}
