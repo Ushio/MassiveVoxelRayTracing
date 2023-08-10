@@ -143,6 +143,28 @@ DEVICE inline float2 getSpherical( float3 n )
 	return { phi / ( PI * 2.0f ), theta / PI };
 }
 
+template <class F>
+DEVICE inline int upper_bound_f( F f, int n, float b )
+{
+	int i = 0;
+	int j = n;
+
+	while( i < j )
+	{
+		const int m = ( i + j ) / 2;
+		const float value = f( m );
+		if( value <= b )
+		{
+			i = m + 1;
+		}
+		else
+		{
+			j = m;
+		}
+	}
+	return i;
+}
+
 struct HDRI
 {
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
@@ -318,46 +340,12 @@ struct HDRI
 				sat = m_sats[5];
 			}
 		}
-
-		int i, j;
-
-		i = 0;
-		j = m_width - 1;
-		do {
-			int mid = ( i + j ) / 2;
-			float s = (float)getPrefixSumExclusiveH( sat, mid ) / (float)0xFFFFFFFFu;
-			if( u0 < s )
-			{
-				j = mid;
-			}
-			else
-			{
-				i = mid; // include mid when u0 == s
-			}
-		} while( i + 1 < j );
-
-		uint32_t X = i;
+		
+		uint32_t X = upper_bound_f( [this, sat]( int i ){ return (float)getPrefixSumExclusiveH( sat, i ) / (float)0xFFFFFFFFu; }, m_width, u0 ) - 1;
 
 		// H prefix sum range is not 0 to 0xFFFFFFFF need to adjust.
 		uint32_t vol = getPrefixSumExclusiveH( sat, X + 1 ) - getPrefixSumExclusiveH( sat, X );
-
-		i = 0;
-		j = m_height - 1;
-		do
-		{
-			int mid = ( i + j ) / 2;
-			float s = (float)getPrefixSumExclusiveV( sat, X, mid ) / (float)vol;
-			if( u1 < s )
-			{
-				j = mid;
-			}
-			else
-			{
-				i = mid; // include mid when u0 == s
-			}
-		} while( i + 1 < j );
-
-		uint32_t Y = i;
+		uint32_t Y = upper_bound_f( [this, sat, X, vol]( int i ){ return  (float)getPrefixSumExclusiveV( sat, X, i ) / (float)vol; }, m_height, u1 ) - 1;
 
 		float pSelection = (float)getCount( sat, X, Y ) / (float)0xFFFFFFFF;
 
