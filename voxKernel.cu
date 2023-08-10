@@ -232,7 +232,7 @@ struct StreamCompaction64
 		uint32_t offset = __popcll( mask & lowerMask );
 		uint32_t d = *globalPrefix + offset;
 		*globalPrefix += __popcll( mask );
-		return voted ? d : -1;
+		return voted ? d : 0xFFFFFFFF;
 	}
 };
 
@@ -260,7 +260,7 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 	{
 		uint32_t itemIndex = streamCompaction.itemIndex( i );
 		uint32_t d = streamCompaction.destination( i, &globalPrefix );
-		if( d != -1 ) // voted
+		if( d != 0xFFFFFFFF ) // voted
 		{
 			uint64_t morton = inputMortonVoxels[itemIndex];
 			outputMortonVoxels[d] = morton;
@@ -396,7 +396,7 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 		uint64_t mortonR = inputMortonVoxels[i];
 
 		outputOctreeTasks[i].morton = mortonR;
-		outputOctreeTasks[i].child = -1;
+		outputOctreeTasks[i].child = 0xFFFFFFFF;
 		outputOctreeTasks[i].numberOfVoxels = 1;
 
 		int iteration = 0;
@@ -453,11 +453,11 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		uint32_t nVoxelsPSum[8];
 		for( int j = 0; j < 8; j++ )
 		{
-			children[j] = -1;
+			children[j] = 0xFFFFFFFF;
 			nVoxelsPSum[j] = 0;
 		}
 
-		if( d != -1 ) // voted
+		if( d != 0xFFFFFFFF ) // voted
 		{
 			// set child
 			uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
@@ -494,7 +494,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		}
 
 #if defined( ENABLE_GPU_DAG )
-		uint32_t nodeIndex = -1;
+		uint32_t nodeIndex = 0xFFFFFFFF;
 
 		MurmurHash32 h( 0 );
 		h.combine( mask );
@@ -502,7 +502,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			h.combine( children[i] );
 		uint32_t home = h.getHash() % lpSize;
 
-		bool done = d == -1;
+		bool done = d == 0xFFFFFFFF;
 #if defined( ITS )
 		__syncwarp();
 		for( int i = 0; __all_sync( 0xFFFFFFFF, done ) == false; i++ )
@@ -563,7 +563,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			}
 		}
 
-		if( d != -1 )
+		if( d != 0xFFFFFFFF )
 		{
 			uint64_t mortonParent = inputOctreeTasks[itemIndex].getMortonParent();
 			outputOctreeTasks[d].morton = mortonParent;
@@ -631,7 +631,11 @@ extern "C" __global__ void render(
 			{
 				float3 hitN = getHitN( nMajor, rd );
 				float3 color = ( hitN + float3{ 1.0f, 1.0f, 1.0f } ) * 0.5f;
-				colorOut = { 255 * color.x + 0.5f, 255 * color.y + 0.5f, 255 * color.z + 0.5f, 255 };
+				colorOut = { 
+					(uint8_t)( 255 * color.x + 0.5f ), 
+					(uint8_t)( 255 * color.y + 0.5f ), 
+					(uint8_t)( 255 * color.z + 0.5f ), 
+					255 };
 			}
 		}
 		frameBuffer[y * resolution.x + x] = colorOut;
@@ -933,10 +937,13 @@ extern "C" __global__ void renderResolve( uchar4* frameBufferU8, const float4* f
 	if( i < n )
 	{
 		float4 value = frameBufferF32[i];
+		int r = (int)( 255 * INTRIN_POW( value.x / value.w, 1.0f / 2.2f ) + 0.5f );
+		int g = (int)( 255 * INTRIN_POW( value.y / value.w, 1.0f / 2.2f ) + 0.5f );
+		int b = (int)( 255 * INTRIN_POW( value.z / value.w, 1.0f / 2.2f ) + 0.5f );
 		uchar4 colorOut = {
-			255 * INTRIN_POW( ss_min( value.x / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
-			255 * INTRIN_POW( ss_min( value.y / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
-			255 * INTRIN_POW( ss_min( value.z / value.w, 1.0f ), 1.0f / 2.2f ) + 0.5f,
+			(uint8_t)min( r, 255 ),
+			(uint8_t)min( g, 255 ),
+			(uint8_t)min( b, 255 ),
 			255 };
 		frameBufferU8[i] = colorOut;
 	}
