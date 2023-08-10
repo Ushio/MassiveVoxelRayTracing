@@ -278,8 +278,10 @@ int main()
 			PrimEnd();
 		}
 		double buildMS = 0.0;
+		double cpuProcessMS = 0.0;
 		if (buildAccelerationStructure)
 		{
+			Stopwatch sw;
 			std::shared_ptr<FScene> scene = ar.readFlat( frame, errorMsg );
 
 			//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity ){ 
@@ -295,6 +297,8 @@ int main()
 			getBoundingBox( vertices, &bbox_lower, &bbox_upper );
 			glm::vec3 bbox_size = bbox_upper - bbox_lower;
 			float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
+
+			cpuProcessMS = sw.elapsed() * 1000.0;
 
 			OroStopwatch oroStream( stream );
 			oroStream.start();
@@ -377,7 +381,9 @@ int main()
 			sceneChanged = true;
 		}
 
+		ImGui::Text( "build cpu(ms) = %f", cpuProcessMS );
 		ImGui::Text( "build(ms) = %f", buildMS );
+		
 		ImGui::Text( "render(ms) = %f", renderMS );
 		ImGui::Text( "voxels   = %lld", pt.getNumberOfVoxels() );
 		ImGui::Text( "octree   = %lld byte", pt.getOctreeBytes() );
