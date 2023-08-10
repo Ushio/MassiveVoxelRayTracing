@@ -151,11 +151,17 @@ int main()
 			PrimEnd();
 		}
 		double buildMS = 0.0;
-		if (buildAccelerationStructure)
-		{
+		if( buildAccelerationStructure )
+		{ 
+			glm::vec3 bbox_lower;
+			glm::vec3 bbox_upper;
+			getBoundingBox( vertices, &bbox_lower, &bbox_upper );
+			glm::vec3 bbox_size = bbox_upper - bbox_lower;
+			float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
+
 			OroStopwatch oroStream( stream );
 			oroStream.start();
-			intersectorOctreeGPU.build( vertices, vcolors, vemissions, &voxKernel, stream, gridRes );
+			intersectorOctreeGPU.build( vertices, vcolors, vemissions, &voxKernel, stream, bbox_lower, dps, gridRes );
 			oroStream.stop();
 			buildMS = oroStream.getMs();
 		}

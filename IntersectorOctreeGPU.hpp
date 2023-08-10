@@ -41,6 +41,8 @@ struct IntersectorOctreeGPU
 		const std::vector<glm::vec3>& vertices, 
 		const std::vector<glm::vec3>& vcolors, const std::vector<glm::vec3>& vemissions,
 		Shader* voxKernel, oroStream stream,
+		glm::vec3 origin,
+		float dps,
 		int gridRes )
 	{
 		if (__popcnt(gridRes) != 1)
@@ -64,17 +66,17 @@ struct IntersectorOctreeGPU
 		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vemissionBuffer.data(), const_cast<glm::vec3*>( vemissions.data() ), vemissionBuffer.bytes() );
 
-		glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
-		glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
-		for( int i = 0; i < vertices.size(); i++ )
-		{
-			bbox_lower = glm::min( bbox_lower, vertices[i] );
-			bbox_upper = glm::max( bbox_upper, vertices[i] );
-		}
+		//glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
+		//glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
+		//for( int i = 0; i < vertices.size(); i++ )
+		//{
+		//	bbox_lower = glm::min( bbox_lower, vertices[i] );
+		//	bbox_upper = glm::max( bbox_upper, vertices[i] );
+		//}
 
-		glm::vec3 origin = bbox_lower;
-		glm::vec3 bbox_size = bbox_upper - bbox_lower;
-		float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
+		//glm::vec3 origin = bbox_lower;
+		//glm::vec3 bbox_size = bbox_upper - bbox_lower;
+		//float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
 
 		m_lower = { origin.x, origin.y, origin.z };
 		m_upper = float3{ origin.x, origin.y, origin.z } + float3{ dps, dps, dps } * (float)gridRes;
@@ -293,9 +295,9 @@ struct IntersectorOctreeGPU
 	{
 		return m_vAttributeBuffer[vIndex].color;
 	}
-	DEVICE float3 getVoxelEmission( uint32_t vIndex ) const
+	DEVICE float3 getVoxelEmission( uint32_t vIndex, bool withScale ) const
 	{
-		return linearReflectance( m_vAttributeBuffer[vIndex].emission ) * m_emissionScale;
+		return linearReflectance( m_vAttributeBuffer[vIndex].emission ) * ( withScale ? m_emissionScale : 1.0f );
 	}
 	//DEVICE uint32_t getNumberOfEmissiveSurfaces() const 
 	//{ 
@@ -329,7 +331,7 @@ struct IntersectorOctreeGPU
 	float3 m_upper;
 	float m_dps = 0.0f;
 
-	float m_emissionScale = 2.0f;
+	float m_emissionScale = 20.0f;
 };
 
 template <class T>

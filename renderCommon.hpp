@@ -121,6 +121,13 @@ DEVICE inline float3 linearReflectance( uchar4 color )
 		INTRIN_POW( (float)color.y / 255.0f, 2.2f ),
 		INTRIN_POW( (float)color.z / 255.0f, 2.2f ) };
 }
+DEVICE inline float3 rawReflectance( uchar4 color )
+{
+	return {
+		(float)color.x / 255.0f,
+		(float)color.y / 255.0f,
+		(float)color.z / 255.0f };
+}
 
 template <class T>
 DEVICE inline float luminance( T color )
@@ -423,7 +430,7 @@ struct HDRI
 	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
-	float m_scale = 0.0f;
+	float m_scale = 0.5f;
 };
 
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
@@ -461,6 +468,8 @@ struct LCGShuffler
 
 DEVICE inline float fresnelSchlick( float cosTheta, float n1, float n2 )
 {
+	return 0.0f;
+
 	float r = ( n1 - n2 ) / ( n1 + n2 );
 	float R0 = r * r;
 	float k = 1.0f - cosTheta;

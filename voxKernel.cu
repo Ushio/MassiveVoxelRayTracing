@@ -840,13 +840,14 @@ extern "C" __global__ void renderPT(
 		}
 		else
 		{
-			float3 Le = intersector.getVoxelEmission( vIndex );
+			float3 Le = intersector.getVoxelEmission( vIndex, false );
 			L += T * Le;
 		}
 
 		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
 		{
-			float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
+			// float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
+			float3 R = rawReflectance( intersector.getVoxelColor( vIndex ) );
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;
 
@@ -898,7 +899,7 @@ extern "C" __global__ void renderPT(
 
 			if( t != MAX_FLOAT )
 			{
-				float3 Le = intersector.getVoxelEmission( vIndex );
+				float3 Le = intersector.getVoxelEmission( vIndex, true );
 				L += T * Le;
 			}
 
