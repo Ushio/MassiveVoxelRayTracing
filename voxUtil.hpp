@@ -21,9 +21,9 @@ inline void trianglesFlattened(
 	    ColumnView<int32_t> indices( polymesh->faceIndices() );
 	    ColumnView<glm::vec3> positions( polymesh->positions() );
 
-		const AttributeSpreadsheet* spreadsheet = polymesh->attributeSpreadsheet( AttributeSpreadsheetType::Vertices );
-		const AttributeVector4Column* colorAttirb = spreadsheet->columnAsVector4( "Color" );
-		const AttributeVector4Column* emissionAttirb = spreadsheet->columnAsVector4( "Emission" );
+		const AttributeSpreadsheet* spreadsheet = polymesh->attributeSpreadsheet( AttributeSpreadsheetType::Points );
+		const AttributeVector3Column* colorAttirb = spreadsheet->columnAsVector3( "Cd" );
+		const AttributeVector3Column* emissionAttirb = spreadsheet->columnAsVector3( "Emission" );
 
 		glm::mat4 m = polymesh->localToWorld();
 	    for( int i = 0; i < faceCounts.count(); i++ )
@@ -35,7 +35,8 @@ inline void trianglesFlattened(
 				vertices->push_back( m * glm::vec4( positions[index], 1.0f ) );
 				if( colorAttirb )
 				{
-					vcolors->push_back( colorAttirb->get( i * 3 + j ) );
+					//vcolors->push_back( colorAttirb->get( i * 3 + j ) );
+					vcolors->push_back( colorAttirb->get( index ) );
 				}
 				else
 				{
@@ -43,7 +44,8 @@ inline void trianglesFlattened(
 				}
 				if( emissionAttirb )
 				{
-					vemissions->push_back( emissionAttirb->get( i * 3 + j ) );
+					//vemissions->push_back( emissionAttirb->get( i * 3 + j ) );
+					vemissions->push_back( emissionAttirb->get( index ) );
 				}
 				else
 				{
@@ -53,6 +55,19 @@ inline void trianglesFlattened(
 	    }
     } );
 }
+inline void getBoundingBox( const std::vector<glm::vec3>& vertices, glm::vec3* lower, glm::vec3* upper )
+{
+	glm::vec3 bbox_lower = glm::vec3( FLT_MAX );
+	glm::vec3 bbox_upper = glm::vec3( -FLT_MAX );
+	for( int i = 0; i < vertices.size(); i++ )
+	{
+		bbox_lower = glm::min( bbox_lower, vertices[i] );
+		bbox_upper = glm::max( bbox_upper, vertices[i] );
+	}
+	*lower = bbox_lower;
+	*upper = bbox_upper;
+}
+
 inline void drawVoxelsWire( const std::vector<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps, glm::u8vec3 color )
 {
 	using namespace pr;
