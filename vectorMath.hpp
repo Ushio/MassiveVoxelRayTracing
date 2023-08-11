@@ -283,11 +283,11 @@ DEVICE inline float3 closestBarycentricCoordinateOnTriangle( float3 v0, float3 v
 	return bc / ( bc.x + bc.y + bc.z );
 }
 
-DEVICE inline uint32_t div_round_up( uint32_t val, uint32_t divisor )
+DEVICE constexpr inline uint32_t div_round_up( uint32_t val, uint32_t divisor )
 {
 	return ( val + divisor - 1 ) / divisor;
 }
-DEVICE inline uint32_t next_multiple( uint32_t val, uint32_t divisor )
+DEVICE constexpr inline uint32_t next_multiple( uint32_t val, uint32_t divisor )
 {
 	return div_round_up( val, divisor ) * divisor;
 }

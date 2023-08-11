@@ -2,6 +2,7 @@
 
 #include "voxCommon.hpp"
 #include "renderCommon.hpp"
+#include "StreamCompaction.hpp"
 
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
 #include "tinyhipradixsort.hpp"
@@ -9,9 +10,11 @@
 #include "Orochi/OrochiUtils.h"
 #endif
 
-#define UNIQUE_BLOCK_SIZE 2048
-#define UNIQUE_BLOCK_THREADS 64
+#define UNIQUE_BLOCK_SIZE 4096
+#define UNIQUE_BLOCK_THREADS 1024
+
 #define BOTTOM_UP_BLOCK_SIZE 4096
+#define BOTTOM_UP_BLOCK_THREADS 1024
 
 struct IntersectorOctreeGPU
 {
@@ -65,6 +68,8 @@ struct IntersectorOctreeGPU
 		oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), const_cast<glm::vec3*>( vertices.data() ), vertexBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vemissionBuffer.data(), const_cast<glm::vec3*>( vemissions.data() ), vemissionBuffer.bytes() );
+
+		StreamCompaction streamCompaction;
 
 		m_lower = { origin.x, origin.y, origin.z };
 		m_upper = float3{ origin.x, origin.y, origin.z } + float3{ dps, dps, dps } * (float)gridRes;
@@ -122,14 +127,11 @@ struct IntersectorOctreeGPU
 		}
 
 		{
-			Buffer iteratorBuffer( sizeof( uint64_t ) );
-
 			auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
 			VoxelAttirb* outputVoxelAttribsBuffer = 0;
 			oroMalloc( (oroDeviceptr*)&outputVoxelAttribsBuffer, sizeof( VoxelAttirb ) * totalDumpedVoxels );
 
-			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
-			oroMemsetD32Async( (oroDeviceptr)iteratorBuffer.data(), 0, iteratorBuffer.bytes() / 4, stream );
+			streamCompaction.clear( stream );
 
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
@@ -137,12 +139,9 @@ struct IntersectorOctreeGPU
 			args.add( m_vAttributeBuffer );
 			args.add( outputVoxelAttribsBuffer );
 			args.add( totalDumpedVoxels );
-			args.add( iteratorBuffer.data() );
+			args.add( streamCompaction );
 			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
-
-			oroMemcpyDtoHAsync( &m_numberOfVoxels, (oroDeviceptr)iteratorBuffer.data(), sizeof( uint32_t ), stream );
-
-			oroStreamSynchronize( stream );
+			m_numberOfVoxels = streamCompaction.readCounter( stream );
 
 			std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
 
@@ -198,10 +197,11 @@ struct IntersectorOctreeGPU
 
 		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 
-
 		while( 1 < ( gridRes >> iteration ) )
 		{
 			oroMemsetD32Async( (oroDeviceptr)lpBuffer->data(), 0, lpSize, stream );
+
+			streamCompaction.clear( stream );
 
 			ShaderArgument args;
 			args.add( iteration );
@@ -212,7 +212,8 @@ struct IntersectorOctreeGPU
 			args.add( counterBuffer.data() ); // nOutputNodes
 			args.add( lpBuffer->data() );
 			args.add( lpSize );
-			voxKernel->launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, 64, 1, 1, stream );
+			args.add( streamCompaction );
+			voxKernel->launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, BOTTOM_UP_BLOCK_THREADS, 1, 1, stream );
 
 			nInput = taskCounters[iteration];
 

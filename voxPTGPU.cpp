@@ -12,6 +12,7 @@
 #include "voxCommon.hpp"
 #include "renderCommon.hpp"
 #include "pmjSampler.hpp"
+#include "StreamCompaction.hpp"
 
 #define RENDER_NUMBER_OF_THREAD 64
 
@@ -30,6 +31,10 @@ public:
 	int m_height = 0;
 	int m_steps = 0;
 
+	Shader& shader()
+	{
+		return *m_voxKernel;
+	}
 	int getSteps() const { return m_steps; }
 	uint64_t getNumberOfVoxels() const
 	{
@@ -64,7 +69,7 @@ public:
 		{
 			compilerArgs.push_back( "-g" );
 		}
-		
+
 		m_voxKernel = std::unique_ptr<Shader>( new Shader( voxSrc.data(), "voxKernel.cu", compilerArgs ) );
 	}
 
