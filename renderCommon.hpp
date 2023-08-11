@@ -10,6 +10,10 @@
 #include "hipUtil.hpp"
 #endif
 
+#define RENDER_NUMBER_OF_THREAD 64
+#define USE_PMJ 1
+
+
 class CameraPinhole
 {
 public:
@@ -466,3 +470,6 @@ struct LCGShuffler
 //{
 //	return I - N * dot( N, I ) * 2.0f;
 //}
+
+
+

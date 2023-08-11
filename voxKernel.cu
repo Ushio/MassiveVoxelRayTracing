@@ -560,9 +560,6 @@ extern "C" __global__ void buildSAT2u32( uint32_t* satU32, double* satF64, int n
 	}
 }
 
-#define USE_PMJ 1
-#define RENDER_NUMBER_OF_THREAD 64
-
 extern "C" __global__ void renderPT(
 	int iteration,
 	float4* frameBuffer, int2 resolution,
