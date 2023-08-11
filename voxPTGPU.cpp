@@ -3,9 +3,9 @@
 #include <memory>
 #include <set>
 
-#include "voxUtil.hpp"
 #include "Orochi/Orochi.h"
 #include "Orochi/OrochiUtils.h"
+#include "voxUtil.hpp"
 #include "hipUtil.hpp"
 
 #include "IntersectorOctreeGPU.hpp"
