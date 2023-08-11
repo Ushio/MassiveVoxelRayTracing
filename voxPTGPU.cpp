@@ -48,7 +48,7 @@ public:
 	void setup( oroStream stream, const char* kernel, const char* includeDir, bool isNvidia )
 	{
 		m_pmj.setup( true, stream );
-		m_stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 37 /* nElementPerThread */, stream );
+		m_stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, isNvidia ? 32 : 37 /* nElementPerThread */, stream );
 
 		std::vector<char> voxSrc;
 		loadFileAsVector( &voxSrc, kernel );
