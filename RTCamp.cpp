@@ -131,8 +131,7 @@ int main()
 
 		taskGroup.addElements( 1 );
 		threadPool.enqueueTask( [frame, image, imageEvent, &taskGroup, device]() {
-			oroCtx context = 0;
-			oroCtxGetCurrent( &context );
+			thread_local oroCtx context = 0;
 			if( context == 0 )
 			{
 				oroCtxCreate( &context, 0, device );
