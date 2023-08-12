@@ -423,7 +423,7 @@ extern "C" __global__ void render(
 		float t = MAX_FLOAT;
 		int nMajor;
 		uint32_t vIndex = 0;
-		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex, false /* isShadowRay */ );
 		uchar4 colorOut = { 0, 0, 0, 255 };
 		if( t != MAX_FLOAT )
 		{
@@ -636,7 +636,7 @@ extern "C" __global__ void renderPT(
 		float t = MAX_FLOAT;
 		int nMajor;
 		uint32_t vIndex = 0;
-		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+		intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex, false /* isShadowRay */ );
 
 		// Primary emissions:
 		if( t == MAX_FLOAT )
@@ -673,7 +673,7 @@ extern "C" __global__ void renderPT(
 				float t = MAX_FLOAT;
 				int nMajor;
 				uint32_t vIndex = 0;
-				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex );
+				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex, true /* isShadowRay */ );
 				if( t == MAX_FLOAT )
 				{
 					L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
@@ -690,7 +690,7 @@ extern "C" __global__ void renderPT(
 			rd = dir;
 
 			t = MAX_FLOAT;
-			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex );
+			intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex, false /* isShadowRay */ );
 
 			if( t != MAX_FLOAT )
 			{

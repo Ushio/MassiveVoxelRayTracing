@@ -233,7 +233,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 	float3 rd,
 	const float3& lower,
 	const float3& upper,
-	float* t, int* nMajor, uint32_t* vIndex )
+	float* t, int* nMajor, uint32_t* vIndex, bool isShadowRay )
 {
 	float3 one_over_rd = float3{ 1.0f, 1.0f, 1.0f } / rd;
 
@@ -386,7 +386,11 @@ DEVICE void octreeTraverse_EfficientParametric(
 				cur.tz1 = z1;
 				cur.scale *= 0.5f;
 				cur.childMask = 0xFFFFFFFF;
-				cur.nVoxelSkipped += node.nVoxelsPSum[childIndex];
+
+				if( isShadowRay == false )
+				{
+					cur.nVoxelSkipped += node.nVoxelsPSum[childIndex];
+				}
 
 				goto next;
 			}
@@ -519,9 +523,10 @@ DEVICE void octreeTraverse_EfficientParametric(
 				cur.tz1 = z1;
 				cur.S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
 				cur.childMask = 0xFFFFFFFF;
-
-				uint32_t nSkipped = node.nVoxelsPSum[childIndex];
-				cur.nVoxelSkipped += nSkipped;
+				if( isShadowRay == false )
+				{
+					cur.nVoxelSkipped += node.nVoxelsPSum[childIndex];
+				}
 
 				goto next;
 			}

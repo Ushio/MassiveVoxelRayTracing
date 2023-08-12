@@ -244,9 +244,10 @@ struct IntersectorOctreeGPU
 		StackElement* stack,
 		float3 ro,
 		float3 rd,
-		float* t, int* nMajor, uint32_t* vIndex) const
+		float* t, int* nMajor, uint32_t* vIndex, 
+		bool isShadowRay ) const
 	{
-		octreeTraverse_EfficientParametric( m_nodeBuffer, m_numberOfNodes - 1, stack, ro, rd, m_lower, m_upper, t, nMajor, vIndex );
+		octreeTraverse_EfficientParametric( m_nodeBuffer, m_numberOfNodes - 1, stack, ro, rd, m_lower, m_upper, t, nMajor, vIndex, isShadowRay );
 	}
 	DEVICE uchar4 getVoxelColor( uint32_t vIndex ) const 
 	{

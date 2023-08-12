@@ -252,7 +252,7 @@ public:
 			stack,
 			ro, rd, 
 			{ m_lower.x, m_lower.y, m_lower.z },
-			{ m_upper.x, m_upper.y, m_upper.z }, t, nMajor, vIndex );
+			{ m_upper.x, m_upper.y, m_upper.z }, t, nMajor, vIndex, false /* isShadowRay */ );
 	}
 
 	uint64_t getMemoryConsumption()
