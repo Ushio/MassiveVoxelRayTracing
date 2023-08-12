@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <concurrent_queue.h>
 
 #include "Orochi/Orochi.h"
 #include "Orochi/OrochiUtils.h"
@@ -25,6 +26,7 @@ int main()
 {
 	using namespace pr;
 	Stopwatch sw;
+	
 	SetDataDir( ExecutableDir() );
 
 	if( oroInitialize( (oroApi)( ORO_API_HIP | ORO_API_CUDA ), 0 ) )
@@ -33,8 +35,10 @@ int main()
 		return 0;
 	}
 	int deviceIdx = 0;
-	int renderWidth = 1920 / 2;
-	int renderHeigt = 1080 / 2;
+	int renderWidth = 1920;
+	int renderHeigt = 1080;
+	int beginFrame = 0;
+	int endFrame = 240;
 
 	int totalFrames = 240;
 
@@ -65,30 +69,17 @@ int main()
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
 
+	// Scene data
+	Camera3D camera;
+	float lensR = 0.1f;
+	float focus = 1.0f;
 	std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
 	std::vector<glm::vec3> vemissions;
 
-	PathTracer pt;
-	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
-	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
-	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
-
-	glm::vec3 center = { -0.131793f, -1.40424f, -3.77277f };
-	float boxWide = 15.0f;
-	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
-
-	int fromRes = 256;
-	int toRes = 2048;// 4096;
-	for( int frame = 0; frame < 240; frame++ )
+	auto loadSceneFrame = [&ar, &camera, &focus, &vertices, &vcolors, &vemissions]( int frame )
 	{
-		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
-		int resolution = (int)ceil( boxWide / dps );
-		int gridRes = next_power_of_two( resolution );
-
-		Camera3D camera;
-		float lensR = 0.1f;
-		float focus = 1.0f;
+		std::string errorMsg;
 		std::shared_ptr<FScene> scene = ar.readFlat( frame, errorMsg );
 
 		scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity ) {
@@ -96,10 +87,35 @@ int main()
 			{
 				camera = cameraFromEntity( cameraEntity.get() );
 				focus = cameraEntity->focusDistance();
-			} 
-		} );
+			} } );
 
 		trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
+	};
+	loadSceneFrame( beginFrame ); // load first frame
+
+	PathTracer pt;
+	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
+	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
+	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
+
+	// reading buffer
+	Concurrency::concurrent_queue<Buffer*> frameBufferPool;
+	for( int i = 0; i < 4; i++ )
+	{
+		frameBufferPool.push( new Buffer( (uint64_t)renderWidth * renderHeigt * sizeof( uchar4 ) ) );
+	}
+
+	glm::vec3 center = { -0.131793f, -1.40424f, -3.77277f };
+	float boxWide = 15.0f;
+	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
+
+	int fromRes = 256;
+	int toRes = 2048;// 4096;
+	for( int frame = beginFrame; frame < endFrame; frame++ )
+	{
+		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
+		int resolution = (int)ceil( boxWide / dps );
+		int gridRes = next_power_of_two( resolution );
 
 		OroStopwatch swUpdate( stream );
 		swUpdate.start();
@@ -118,19 +134,20 @@ int main()
 			pt.step( stream, camera, focus, lensR );
 		}
 
+		loadSceneFrame( frame ); // load next frame
+
+		pt.resolve( stream );
+		
+		Buffer* frameBuffer = nullptr;
+		while( frameBufferPool.try_pop( frameBuffer ) == false )
+			;
+
+		oroMemcpyDtoDAsync( (oroDeviceptr)frameBuffer->data(), (oroDeviceptr)pt.m_frameBufferU8->data(), (uint64_t)renderWidth * renderHeigt * sizeof( uchar4 ), stream );
+
 		swRender.stop();
-		printf( "[frame %d] total( %.1f s ) / update %.3f / render %.3f\n", frame, sw.elapsed(), swUpdate.getMs(), swRender.getMs() );
-
-		std::shared_ptr<Image2DRGBA8> image( new Image2DRGBA8() );
-		image->allocate( renderWidth, renderHeigt );
-		pt.toImageAsync( stream, image.get() );
-
-		oroEvent imageEvent;
-		oroEventCreateWithFlags( &imageEvent, oroEventDefault );
-		oroEventRecord( imageEvent, stream );
 
 		taskGroup.addElements( 1 );
-		threadPool.enqueueTask( [frame, image, imageEvent, &taskGroup, device]() {
+		threadPool.enqueueTask( [frame, frameBuffer, &taskGroup, device, renderWidth, renderHeigt, &frameBufferPool]() {
 			thread_local oroCtx context = 0;
 			if( context == 0 )
 			{
@@ -138,17 +155,30 @@ int main()
 				oroCtxSetCurrent( context );
 			}
 
-			oroEventSynchronize( imageEvent );
-			oroEventDestroy( imageEvent );
+			Image2DRGBA8 image;
+			image.allocate( renderWidth, renderHeigt );
+			oroMemcpyDtoH( image.data(), (oroDeviceptr)frameBuffer->data(), (uint64_t)renderWidth * renderHeigt * sizeof( uchar4 ) );
+
+			frameBufferPool.push( frameBuffer );
 
 			Stopwatch swSave;
 			char output[256];
 			sprintf( output, "render_%04d.png", frame );
-			image->saveAsPngUncompressed( GetDataPath( output ).c_str() );
+			image.saveAsPngUncompressed( GetDataPath( output ).c_str() );
 			taskGroup.doneElements( 1 );
 		} );
+
+		printf( "[frame %d] total( %.1f s ) / update %.3f / render %.3f\n", frame, sw.elapsed(), swUpdate.getMs(), swRender.getMs() );
 	}
 	taskGroup.waitForAllElementsToFinish();
+
+	Buffer* frameBuffer = nullptr;
+	while( frameBufferPool.try_pop( frameBuffer ) )
+	{
+		delete frameBuffer;
+	}
+
+	printf( "done %f\n", sw.elapsed() );
 
 	pt.cleanUp();
 

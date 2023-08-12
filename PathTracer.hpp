@@ -127,6 +127,14 @@ public:
 
 		oroMemcpyDtoHAsync( output->data(), (oroDeviceptr)m_frameBufferU8->data(), (uint64_t)m_width * m_height * sizeof( uchar4 ), stream );
 	}
+	void resolve(oroStream stream)
+	{
+		ShaderArgument args;
+		args.add( m_frameBufferU8->data() );
+		args.add( m_frameBufferF32->data() );
+		args.add( m_width * m_height );
+		m_voxKernel->launch( "renderResolve", args, div_round_up64( m_width * m_height, 128 ), 1, 1, 128, 1, 1, stream );
+	}
 
 	void updateScene( const std::vector<glm::vec3>& vertices,
 					  const std::vector<glm::vec3>& vcolors,
