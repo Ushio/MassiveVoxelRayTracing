@@ -226,6 +226,17 @@ struct IntersectorOctreeGPU
 		oroStreamSynchronize( stream );
 
 		assert( m_numberOfNodes <= nTotalInternalNodes );
+
+#if defined( ENABLE_EMBEDED_MASK )
+		assert( m_numberOfNodes < 0xFFFFFF );
+		// embed
+		{
+			ShaderArgument args;
+			args.add( m_nodeBuffer );
+			args.add( m_numberOfNodes );
+			voxKernel->launch( "embedMasks", args, div_round_up64( m_numberOfNodes, 128 ), 1, 1, 128, 1, 1, stream );
+		}
+#endif
 		// printf( "%d %d\n", m_numberOfNodes, nTotalInternalNodes );
 	}
 #else

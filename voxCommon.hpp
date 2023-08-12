@@ -4,6 +4,10 @@
 
 #define ENABLE_GPU_DAG 1
 
+// GPU optimization Embed a mask to a pointer. It may be slow on the CPU.
+// The number of nodes must be smaller than 0xFFFFFF. 
+#define ENABLE_EMBEDED_MASK 1
+
 #if defined( __CUDACC__ ) || defined( __HIPCC__ )
 #ifndef DEVICE
 #define DEVICE __device__
@@ -173,6 +177,20 @@ struct OctreeNode
 	}
 };
 
+DEVICE void embedMask( OctreeNode* nodes, uint32_t nodeIndex )
+{
+	for( int i = 0; i < 8; i++ )
+	{
+		uint32_t child = nodes[nodeIndex].children[i];
+		if( child == 0xFFFFFFFF )
+		{
+			continue;
+		}
+		child |= nodes[child].mask << 24;
+		nodes[nodeIndex].children[i] = child;
+	}
+}
+
 #define LP_OCCUPIED_BIT 0x80000000
 #define LP_LOCK         0xFFFFFFFF
 #define LP_VALUE_BIT    0x7FFFFFFF
@@ -281,6 +299,11 @@ DEVICE void octreeTraverse_EfficientParametric(
 		dst.nVoxelSkipped = src.nVoxelSkipped;
 #endif
 	};
+
+#if defined( ENABLE_EMBEDED_MASK )
+	nodeIndex |= nodes[nodeIndex].mask << 24;
+#endif
+
 	int sp = 0;
 	StackElement cur = { nodeIndex, t1.x, t1.y, t1.z, 1.0f, 0xFFFFFFFF, 0 };
 
@@ -329,7 +352,13 @@ DEVICE void octreeTraverse_EfficientParametric(
 				( tzM < S_lmax ? 4u : 0u );
 		}
 
+#if defined( ENABLE_EMBEDED_MASK )
+		uint32_t mask = cur.nodeIndex >> 24;
+		const OctreeNode& node = nodes[cur.nodeIndex & 0xFFFFFF];
+#else
 		const OctreeNode& node = nodes[cur.nodeIndex];
+		uint32_t mask = node.mask;
+#endif
 
 		float x1 = ( cur.childMask & 1u ) ? cur.tx1 : txM;
 		float y1 = ( cur.childMask & 2u ) ? cur.ty1 : tyM;
@@ -345,7 +374,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 			uint32_t childIndex = cur.childMask ^ vMask;
 			cur.childMask |= mv;
 
-			if( ( node.mask & ( 0x1 << childIndex ) ) )
+			if( ( mask & ( 0x1 << childIndex ) ) )
 			{
 				if( hasNext )
 				{
@@ -409,6 +438,10 @@ DEVICE void octreeTraverse_EfficientParametric(
 		dst.nVoxelSkipped = src.nVoxelSkipped;
 	};
 
+#if defined( ENABLE_EMBEDED_MASK )
+	nodeIndex |= nodes[nodeIndex].mask << 24;
+#endif
+
 	int sp = 0;
 	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, S_lmaxTop, t1.x, t1.y, t1.z, 0xFFFFFFFF, 0 };
 
@@ -448,7 +481,13 @@ DEVICE void octreeTraverse_EfficientParametric(
 				( tzM < cur.S_lmax ? 4u : 0u );
 		}
 
+#if defined( ENABLE_EMBEDED_MASK )
+		uint32_t mask = cur.nodeIndex >> 24;
+		const OctreeNode& node = nodes[cur.nodeIndex & 0xFFFFFF];
+#else
 		const OctreeNode& node = nodes[cur.nodeIndex];
+		uint32_t mask = node.mask;
+#endif
 
 		float x1 = ( cur.childMask & 1u ) ? cur.tx1 : txM;
 		float y1 = ( cur.childMask & 2u ) ? cur.ty1 : tyM;
@@ -465,7 +504,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 			uint32_t currentChildMask = cur.childMask;
 			cur.childMask |= mv;
 
-			if( node.mask & ( 0x1 << childIndex ) )
+			if( mask & ( 0x1 << childIndex ) )
 			{
 				if( hasNext )
 				{

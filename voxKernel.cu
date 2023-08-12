@@ -378,6 +378,17 @@ extern "C" __global__ void bottomUpOctreeBuild(
 	);
 }
 
+extern "C" __global__ void embedMasks( OctreeNode *nodes, uint32_t numberOfNodes )
+{
+	uint32_t nodeIndex = blockIdx.x * blockDim.x + threadIdx.x;
+	if( numberOfNodes <= nodeIndex )
+	{
+		return;
+	}
+	
+	embedMask( nodes, nodeIndex );
+}
+
 extern "C" __global__ void render(
 	uchar4* frameBuffer, int2 resolution,
 	uint32_t* taskCounter, StackElement* stackBuffer,
