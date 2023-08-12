@@ -1,4 +1,5 @@
 #include "pr.hpp"
+#include "prth.hpp"
 #include <iostream>
 #include <memory>
 #include <set>
@@ -23,6 +24,7 @@ uint32_t next_power_of_two(uint32_t v)
 int main()
 {
 	using namespace pr;
+	Stopwatch sw;
 	SetDataDir( ExecutableDir() );
 
 	if( oroInitialize( (oroApi)( ORO_API_HIP | ORO_API_CUDA ), 0 ) )
@@ -30,7 +32,7 @@ int main()
 		printf( "failed to init..\n" );
 		return 0;
 	}
-	int deviceIdx = 2;
+	int deviceIdx = 0;
 	int renderWidth = 1920 / 2;
 	int renderHeigt = 1080 / 2;
 
@@ -54,7 +56,11 @@ int main()
 	printf( "Device: %s\n", props.name );
 	printf( "Cuda: %s\n", isNvidia ? "Yes" : "No" );
 
-	const char* input = "rtcamp.abc";
+	ThreadPool threadPool( 4 );
+	TaskGroup taskGroup;
+
+	// const char* input = "rtcamp.abc";
+	const char* input = "output.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
@@ -68,15 +74,12 @@ int main()
 	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
 	pt.loadHDRI( stream, "brown_photostudio_02_2k.hdr" );
 
-	Image2DRGBA8 image;
-	image.allocate( renderWidth, renderHeigt );
-
-	glm::vec3 center = { -0.131793f, -1.40424f, -0.975714f };
-	float boxWide = 11.0f;
+	glm::vec3 center = { -0.131793f, -1.40424f, -3.77277f };
+	float boxWide = 15.0f;
 	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
 
-	int fromRes = 64;
-	int toRes = 4096;
+	int fromRes = 256;
+	int toRes = 2048;// 4096;
 	for( int frame = 0; frame < 240; frame++ )
 	{
 		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
@@ -113,15 +116,37 @@ int main()
 		}
 
 		swRender.stop();
+		printf( "[frame %d] total( %.1f s ) / update %.3f / render %.3f\n", frame, sw.elapsed(), swUpdate.getMs(), swRender.getMs() );
 
-		printf( "[frame %d] update %.3f / render %.3f\n", frame, swUpdate.getMs(), swRender.getMs() );
+		std::shared_ptr<Image2DRGBA8> image( new Image2DRGBA8() );
+		image->allocate( renderWidth, renderHeigt );
+		pt.toImageAsync( stream, image.get() );
 
-		pt.toImage( stream, &image );
+		oroEvent imageEvent;
+		oroEventCreateWithFlags( &imageEvent, oroEventDefault );
+		oroEventRecord( imageEvent, stream );
 
-		char output[256];
-		sprintf( output, "render_%04d.png", frame );
-		image.saveAsPng( GetDataPath( output ).c_str() );
+		taskGroup.addElements( 1 );
+		threadPool.enqueueTask( [frame, image, imageEvent, &taskGroup, device]() {
+			oroCtx context = 0;
+			oroCtxGetCurrent( &context );
+			if( context == 0 )
+			{
+				oroCtxCreate( &context, 0, device );
+				oroCtxSetCurrent( context );
+			}
+
+			oroEventSynchronize( imageEvent );
+			oroEventDestroy( imageEvent );
+
+			Stopwatch swSave;
+			char output[256];
+			sprintf( output, "render_%04d.png", frame );
+			image->saveAsPngUncompressed( GetDataPath( output ).c_str() );
+			taskGroup.doneElements( 1 );
+		} );
 	}
+	taskGroup.waitForAllElementsToFinish();
 
 	pt.cleanUp();
 

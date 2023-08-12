@@ -179,7 +179,8 @@ int main()
 			oroStream.stop();
 			renderMS = oroStream.getMs();
 
-			pt.toImage( stream, &image );
+			pt.toImageAsync( stream, &image );
+			oroStreamSynchronize( stream );
 
 			if( pt.getSteps() == 16 )
 			{

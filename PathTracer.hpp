@@ -108,7 +108,7 @@ public:
 		m_hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), m_voxKernel.get(), stream );
 	}
 
-	void toImage( oroStream stream, pr::Image2DRGBA8* output )
+	void toImageAsync( oroStream stream, pr::Image2DRGBA8* output )
 	{
 		output->allocate( m_width, m_height );
 
@@ -119,7 +119,6 @@ public:
 		m_voxKernel->launch( "renderResolve", args, div_round_up64( m_width * m_height, 128 ), 1, 1, 128, 1, 1, stream );
 
 		oroMemcpyDtoHAsync( output->data(), (oroDeviceptr)m_frameBufferU8->data(), (uint64_t)m_width * m_height * sizeof( uchar4 ), stream );
-		oroStreamSynchronize( stream );
 	}
 
 	void updateScene( const std::vector<glm::vec3>& vertices,
