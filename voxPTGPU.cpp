@@ -81,7 +81,7 @@ int main()
 	PathTracer pt;
 	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
 	pt.resizeFrameBufferIfNeeded( stream, GetScreenWidth(), GetScreenHeight() );
-	pt.loadHDRI( stream, "brown_photostudio_02_2k.hdr" );
+	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
 
 	bool sixSeparating = true;
 	int gridRes = 512;

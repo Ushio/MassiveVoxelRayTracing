@@ -101,11 +101,18 @@ public:
 		oroMemsetD32Async( (oroDeviceptr)m_frameBufferF32->data(), 0, m_frameBufferF32->bytes() / 4, stream );
 	}
 
-	void loadHDRI( oroStream stream, const char* file )
+	void loadHDRI( oroStream stream, const char* file, const char* filePrimary = 0 )
 	{
 		pr::Image2DRGBA32 hdriSrc;
 		hdriSrc.loadFromHDR( file );
 		m_hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), m_voxKernel.get(), stream );
+
+		if( filePrimary )
+		{
+			pr::Image2DRGBA32 hdriPrimarySrc;
+			hdriPrimarySrc.loadFromHDR( filePrimary );
+			m_hdri.loadPrimary( glm::value_ptr( *hdriPrimarySrc.data() ), stream );
+		}
 	}
 
 	void toImageAsync( oroStream stream, pr::Image2DRGBA8* output )

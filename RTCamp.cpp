@@ -72,7 +72,7 @@ int main()
 	PathTracer pt;
 	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
 	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
-	pt.loadHDRI( stream, "brown_photostudio_02_2k.hdr" );
+	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
 
 	glm::vec3 center = { -0.131793f, -1.40424f, -3.77277f };
 	float boxWide = 15.0f;

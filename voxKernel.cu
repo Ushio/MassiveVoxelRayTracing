@@ -632,7 +632,7 @@ extern "C" __global__ void renderPT(
 		{
 			// float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
 			// float3 env = { I, I, I };
-			float3 env = hdri.sampleNearest( rd );
+			float3 env = hdri.sampleNearest( rd, true );
 			L += T * env;
 		}
 		else
