@@ -10,7 +10,7 @@
 #include "hipUtil.hpp"
 #endif
 
-#define RENDER_NUMBER_OF_THREAD 64
+#define RENDER_NUMBER_OF_THREAD 256
 #define USE_PMJ 1
 
 

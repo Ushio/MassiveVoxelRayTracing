@@ -571,7 +571,7 @@ extern "C" __global__ void buildSAT2u32( uint32_t* satU32, double* satF64, int n
 	}
 }
 
-extern "C" __global__ void renderPT(
+extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT(
 	int iteration,
 	float4* frameBuffer, int2 resolution,
 	CameraPinhole pinhole,
