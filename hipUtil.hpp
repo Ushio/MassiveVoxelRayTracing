@@ -134,6 +134,7 @@ public:
         {
             std::vector<char> compileLog( logSize );
             orortcGetProgramLog( program, compileLog.data() );
+			compileLog.push_back( '\0' );
             printf( "%s", compileLog.data() );
         }
         
