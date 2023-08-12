@@ -266,7 +266,7 @@ struct IntersectorOctreeGPU
 	float3 m_upper;
 	float m_dps = 0.0f;
 
-	float m_emissionScale = 20.0f;
+	float m_emissionScale = 7.5f;
 };
 
 template <class T>

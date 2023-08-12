@@ -471,7 +471,7 @@ struct HDRI
 	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
-	float m_scale = 2.0f;
+	float m_scale = 1.75f;
 };
 
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )

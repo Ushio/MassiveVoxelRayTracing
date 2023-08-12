@@ -35,8 +35,8 @@ int main()
 		return 0;
 	}
 	int deviceIdx = 0;
-	int renderWidth = 1920;
-	int renderHeigt = 1080;
+	int renderWidth = 1536;
+	int renderHeigt = 960;
 	int beginFrame = 0;
 	int endFrame = 240;
 
@@ -60,7 +60,7 @@ int main()
 	printf( "Device: %s\n", props.name );
 	printf( "Cuda: %s\n", isNvidia ? "Yes" : "No" );
 
-	ThreadPool threadPool( 4 );
+	ThreadPool threadPool( 1 );
 	TaskGroup taskGroup;
 
 	// const char* input = "rtcamp.abc";
@@ -110,7 +110,7 @@ int main()
 	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
 
 	int fromRes = 256;
-	int toRes = 2048;// 4096;
+	int toRes = 4096; // 4096;
 	for( int frame = beginFrame; frame < endFrame; frame++ )
 	{
 		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
@@ -129,7 +129,7 @@ int main()
 
 		pt.clearFrameBuffer( stream );
 
-		for( int iteration = 0; iteration < 16; iteration++ )
+		for( int iteration = 0; iteration < 8; iteration++ )
 		{
 			pt.step( stream, camera, focus, lensR );
 		}
