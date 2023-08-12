@@ -106,6 +106,7 @@ int main()
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
 
+
 	pr::ITexture* bgTexture = 0;
 
 	SetDepthTest( true );
@@ -170,7 +171,7 @@ int main()
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
 
 		CameraPinhole pinhole;
-		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
+		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix(), 1.0f, 0.0f );
 
 		double renderMS = 0;
 		{

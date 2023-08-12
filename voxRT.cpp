@@ -290,7 +290,7 @@ int main()
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
 
 		CameraPinhole pinhole;
-		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
+		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix(), 1.0f, 0.0f );
 
 		//CameraRayGenerator rayGenerator( GetCurrentViewMatrix(), GetCurrentProjMatrix(), image.width(), image.height() );
 

@@ -614,7 +614,10 @@ extern "C" __global__ void renderPT(
 
 		float2 cam_u01 = SAMPLE_2D();
 		float3 ro, rd;
-		pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
+		// pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
+
+		float2 lens_u01 = SAMPLE_2D();
+		pinhole.shootThinLens( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y, lens_u01.x, lens_u01.y );
 
 		float3 T = { 1.0f, 1.0f, 1.0f };
 		float3 L = {};

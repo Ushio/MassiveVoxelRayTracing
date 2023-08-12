@@ -87,12 +87,15 @@ int main()
 		int gridRes = next_power_of_two( resolution );
 
 		Camera3D camera;
+		float lensR = 0.1f;
+		float focus = 1.0f;
 		std::shared_ptr<FScene> scene = ar.readFlat( frame, errorMsg );
 
 		scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity ) {
 			if( cameraEntity->visible() )
 			{
 				camera = cameraFromEntity( cameraEntity.get() );
+				focus = cameraEntity->focusDistance();
 			} 
 		} );
 
@@ -112,7 +115,7 @@ int main()
 
 		for( int iteration = 0; iteration < 16; iteration++ )
 		{
-			pt.step( stream, camera );
+			pt.step( stream, camera, focus, lensR );
 		}
 
 		swRender.stop();

@@ -18,7 +18,7 @@ class CameraPinhole
 {
 public:
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
-	void initFromPerspective( glm::mat4 viewMatrix, glm::mat4 projMatrix )
+	void initFromPerspective( glm::mat4 viewMatrix, glm::mat4 projMatrix, float focus, float lensR )
 	{
 		glm::mat3 vT = glm::transpose( glm::mat3( viewMatrix ) );
 		m_front = { -vT[2].x, -vT[2].y, -vT[2].z };
@@ -29,6 +29,9 @@ public:
 		m_o = { -m.x, -m.y, -m.z };
 
 		m_tanHthetaY = 1.0f / projMatrix[1][1];
+
+		m_lensR = lensR;
+		m_focus = focus;
 	}
 #endif
 	DEVICE void shoot( float3* ro, float3* rd, int x, int y, float xoffsetInPixel, float yoffsetInPixel, int imageWidth, int imageHeight ) const
@@ -44,11 +47,40 @@ public:
 		*ro = m_o;
 		*rd = d;
 	}
+	DEVICE void shootThinLens( float3* ro, float3* rd, int x, int y, float xoffsetInPixel, float yoffsetInPixel, int imageWidth, int imageHeight, float u0, float u1 ) const
+	{
+		float xf = ( x + xoffsetInPixel ) / imageWidth;
+		float yf = ( y + yoffsetInPixel ) / imageHeight;
+
+		// local coords: 
+		float3 focalP = {
+			m_focus * mix( -m_tanHthetaY, m_tanHthetaY, xf ) * imageWidth / imageHeight,
+			m_focus * mix( m_tanHthetaY, -m_tanHthetaY, yf ),
+			m_focus
+		};
+		float3 lensP = {
+			mix( -m_lensR, m_lensR, u0 ),
+			mix( -m_lensR, m_lensR, u1 ),
+			0.0f
+		};
+		float3 dir = focalP - lensP;
+
+		// to world:
+		float3 d =
+			m_right * dir.x +
+			m_up * dir.y +
+			m_front * dir.z;
+		*rd = d;
+		*ro = m_o + m_right * lensP.x + m_up * lensP.y + m_front * lensP.z;
+	}
+
 	float3 m_o;
 	float3 m_front;
 	float3 m_up;
 	float3 m_right;
 	float m_tanHthetaY;
+	float m_lensR;
+	float m_focus;
 };
 
 struct PCG32

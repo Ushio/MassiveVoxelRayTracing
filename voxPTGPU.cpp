@@ -49,20 +49,23 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	static int frame = 0;
+	int frame = 0;
+	float focus = 7.0f;
+	float lensR = 0.0f;
 
 	//const char* input = "bunnyColor.abc";
 	const char* input = "output.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
-	// std::shared_ptr<FScene> scene = ar.readFlat( 60, errorMsg );
 
+	std::shared_ptr<FScene> scene = ar.readFlat( 60, errorMsg );
 	//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
 	//{ 
 	//	if( cameraEntity->visible() )
 	//	{
 	//		camera = cameraFromEntity( cameraEntity.get() );
+	//		focus = cameraEntity->focusDistance();
 	//	} 
 	//} );
 
@@ -84,6 +87,7 @@ int main()
 	int gridRes = 512;
 	bool drawModel = false;
 	bool buildAccelerationStructure = true;
+
 
 	pr::ITexture* bgTexture = 0;
 
@@ -175,7 +179,7 @@ int main()
 
 			OroStopwatch oroStream( stream );
 			oroStream.start();
-			pt.step( stream, camera );
+			pt.step( stream, camera, focus, lensR );
 			oroStream.stop();
 			renderMS = oroStream.getMs();
 
@@ -231,6 +235,14 @@ int main()
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
 		if( ImGui::SliderInt( "frame", &frame, 0, ar.frameCount() - 1 ) )
+		{
+			sceneChanged = true;
+		}
+		if( ImGui::InputFloat( "focus distance", &focus ) )
+		{
+			sceneChanged = true;
+		}
+		if( ImGui::SliderFloat( "lens radius", &lensR, 0.0f, 1.0f ) )
 		{
 			sceneChanged = true;
 		}

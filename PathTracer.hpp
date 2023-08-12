@@ -132,13 +132,13 @@ public:
 		m_intersectorOctreeGPU.build( vertices, vcolors, vemissions, m_voxKernel.get(), stream, origin, dps, gridRes );
 	}
 
-	void step( oroStream stream, pr::Camera3D camera )
+	void step( oroStream stream, pr::Camera3D camera, float focus, float lensR )
 	{
 		glm::mat4 viewMat, projMat;
 		GetCameraMatrix( camera, &projMat, &viewMat, m_width, m_height );
 
 		CameraPinhole pinhole;
-		pinhole.initFromPerspective( viewMat, projMat );
+		pinhole.initFromPerspective( viewMat, projMat, focus, lensR );
 
 		ShaderArgument args;
 		args.add( m_steps++ );
