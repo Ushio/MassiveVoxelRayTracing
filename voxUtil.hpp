@@ -3,6 +3,7 @@
 #include <vector>
 #include "pr.hpp"
 #include "morton.hpp"
+#include "vectorMath.hpp"
 
 inline void trianglesFlattened( 
 	std::shared_ptr<pr::FScene> scene, 
@@ -26,6 +27,13 @@ inline void trianglesFlattened(
 		const AttributeVector3Column* emissionAttirb = spreadsheet->columnAsVector3( "Emission" );
 
 		glm::mat4 m = polymesh->localToWorld();
+		glm::mat3 RS = glm::mat3( m );
+		bool allZero = std::all_of( glm::value_ptr( RS ), glm::value_ptr( RS ) + 9, []( float v ){ return ss_abs( v ) < 0.0000001f; } );
+		if( allZero )
+		{
+			return;
+		}
+		
 	    for( int i = 0; i < faceCounts.count(); i++ )
 	    {
 		    PR_ASSERT( faceCounts[i] == 3 ); // no quad support now.
