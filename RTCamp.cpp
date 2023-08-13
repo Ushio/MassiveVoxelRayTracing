@@ -172,7 +172,7 @@ int main()
 
 			Stopwatch swSave;
 			char output[256];
-			sprintf( output, "render_%04d.png", frame );
+			sprintf( output, "render_%03d.png", frame );
 			image.saveAsPngUncompressed( GetDataPath( output ).c_str() );
 			taskGroup.doneElements( 1 );
 		} );
