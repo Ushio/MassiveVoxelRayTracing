@@ -222,6 +222,7 @@ public:
 		m_lower = origin;
 		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
 		buildOctreeNaive( &m_nodes, mortonVoxels, gridRes );
+		embedMasks();
 	}
 
 	void buildDAGReference( const std::vector<uint64_t>& mortonVoxels, const glm::vec3& origin, float dps, int gridRes )
@@ -229,6 +230,18 @@ public:
 		m_lower = origin;
 		m_upper = origin + glm::vec3( dps, dps, dps ) * (float)gridRes;
 		buildOctreeDAGReference( &m_nodes, mortonVoxels, gridRes );
+		embedMasks();
+	}
+
+	void embedMasks()
+	{
+#if defined( ENABLE_EMBEDED_MASK )
+		assert( m_nodes.size() < 0xFFFFFF );
+		for( int i = 0; i < m_nodes.size(); i++ )
+		{
+			embedMask( m_nodes.data(), i );
+		}
+#endif
 	}
 
 	void intersect( const float3& ro, const float3& rd, float* t, int* nMajor, uint32_t* vIndex )
@@ -239,7 +252,7 @@ public:
 			stack,
 			ro, rd, 
 			{ m_lower.x, m_lower.y, m_lower.z },
-			{ m_upper.x, m_upper.y, m_upper.z }, t, nMajor, vIndex );
+			{ m_upper.x, m_upper.y, m_upper.z }, t, nMajor, vIndex, false /* isShadowRay */ );
 	}
 
 	uint64_t getMemoryConsumption()

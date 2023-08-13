@@ -75,15 +75,17 @@ private:
 
 struct ShaderArgument
 {
+    // always memcopy
     template <class T>
-    void add( T p )
+    void add( const T& p )
     {
-        int bytes = sizeof( p );
+        int bytes = sizeof( T );
         int location = m_buffer.size();
         m_buffer.resize( m_buffer.size() + bytes );
         memcpy( m_buffer.data() + location, &p, bytes );
         m_locations.push_back( location );
     }
+
     void clear()
     {
         m_buffer.clear();
@@ -132,6 +134,7 @@ public:
         {
             std::vector<char> compileLog( logSize );
             orortcGetProgramLog( program, compileLog.data() );
+			compileLog.push_back( '\0' );
             printf( "%s", compileLog.data() );
         }
         

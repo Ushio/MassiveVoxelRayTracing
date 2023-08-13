@@ -34,6 +34,23 @@ inline void decodeMortonCode_Naive( uint64_t morton, uint32_t* x, uint32_t* y, u
 	*y = oy;
 	*z = oz;
 }
+inline uint32_t getThirdBits( uint64_t m )
+{
+	const uint64_t masks[6] = { 0x1fffffllu, 0x1f00000000ffffllu, 0x1f0000ff0000ffllu, 0x100f00f00f00f00fllu, 0x10c30c30c30c30c3llu, 0x1249249249249249llu };
+	uint64_t x = m & masks[5];
+	x = ( x ^ ( x >> 2 ) ) & masks[4];
+	x = ( x ^ ( x >> 4 ) ) & masks[3];
+	x = ( x ^ ( x >> 8 ) ) & masks[2];
+	x = ( x ^ ( x >> 16 ) ) & masks[1];
+	x = ( x ^ ( x >> 32 ) ) & masks[0];
+	return static_cast<uint32_t>( x );
+}
+inline void decodeMortonCode_magicBits( uint64_t morton, uint32_t* x, uint32_t* y, uint32_t* z )
+{
+	*x = getThirdBits( morton );
+	*y = getThirdBits( morton >> 1 );
+	*z = getThirdBits( morton >> 2 );
+}
 
 /*
 * https://www.chessprogramming.org/BMI2

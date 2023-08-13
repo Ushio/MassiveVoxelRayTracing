@@ -4,6 +4,10 @@
 
 #define ENABLE_GPU_DAG 1
 
+// GPU optimization Embed a mask to a pointer. It may be slow on the CPU.
+// The number of nodes must be smaller than 0xFFFFFF. 
+#define ENABLE_EMBEDED_MASK 1
+
 #if defined( __CUDACC__ ) || defined( __HIPCC__ )
 #ifndef DEVICE
 #define DEVICE __device__
@@ -111,6 +115,18 @@ DEVICE inline int numberOfSortBitsMorton( uint32_t gridRes )
 }
 #endif
 
+struct VoxelAttirb
+{
+	uchar4 color;
+	uchar4 emission;
+};
+
+struct EmissiveSurface
+{
+	float3 pivot;
+	uchar4 emission;
+};
+
 struct OctreeNode
 {
 	uint8_t mask;
@@ -161,18 +177,32 @@ struct OctreeNode
 	}
 };
 
+DEVICE void embedMask( OctreeNode* nodes, uint32_t nodeIndex )
+{
+	for( int i = 0; i < 8; i++ )
+	{
+		uint32_t child = nodes[nodeIndex].children[i];
+		if( child == 0xFFFFFFFF )
+		{
+			continue;
+		}
+		child |= nodes[child].mask << 24;
+		nodes[nodeIndex].children[i] = child;
+	}
+}
+
 #define LP_OCCUPIED_BIT 0x80000000
 #define LP_LOCK         0xFFFFFFFF
 #define LP_VALUE_BIT    0x7FFFFFFF
 
 #define SMALL_STACK 1
 #if defined( SMALL_STACK )
-struct StackElement
+struct alignas(16) StackElement
 {
 	uint32_t nodeIndex;
-	float tx0;
-	float ty0;
-	float tz0;
+	float tx1;
+	float ty1;
+	float tz1;
 	float scale;
 	uint32_t childMask;
 	uint32_t nVoxelSkipped;
@@ -203,7 +233,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 	float3 rd,
 	const float3& lower,
 	const float3& upper,
-	float* t, int* nMajor, uint32_t* vIndex )
+	float* t, int* nMajor, uint32_t* vIndex, bool isShadowRay )
 {
 	float3 one_over_rd = float3{ 1.0f, 1.0f, 1.0f } / rd;
 
@@ -259,9 +289,9 @@ DEVICE void octreeTraverse_EfficientParametric(
 		}
 #else
 		dst.nodeIndex = src.nodeIndex;
-		dst.tx0 = src.tx0;
-		dst.ty0 = src.ty0;
-		dst.tz0 = src.tz0;
+		dst.tx1 = src.tx1;
+		dst.ty1 = src.ty1;
+		dst.tz1 = src.tz1;
 
 		dst.scale = src.scale;
 
@@ -269,44 +299,50 @@ DEVICE void octreeTraverse_EfficientParametric(
 		dst.nVoxelSkipped = src.nVoxelSkipped;
 #endif
 	};
+
+#if defined( ENABLE_EMBEDED_MASK )
+	nodeIndex |= nodes[nodeIndex].mask << 24;
+#endif
+
 	int sp = 0;
-	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, 1.0f, 0xFFFFFFFF, 0 };
+	StackElement cur = { nodeIndex, t1.x, t1.y, t1.z, 1.0f, 0xFFFFFFFF, 0 };
 
 	float3 dt = t1 - t0;
 
 	for( ;; )
 	{
 	next:
-		float tx1 = cur.tx0 + dt.x * cur.scale;
-		float ty1 = cur.ty0 + dt.y * cur.scale;
-		float tz1 = cur.tz0 + dt.z * cur.scale;
+		float tx0 = cur.tx1 - dt.x * cur.scale;
+		float ty0 = cur.ty1 - dt.y * cur.scale;
+		float tz0 = cur.tz1 - dt.z * cur.scale;
 
 		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind. Otherwise, there are potential hits.
-		if( minElement( tx1, ty1, tz1 ) < 0.0f )
+		if( minElement( cur.tx1, cur.ty1, cur.tz1 ) < 0.0f )
 		{
 			goto pop;
 		}
 
-		float S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
+		float S_lmax = maxElement( tx0, ty0, tz0 );
 
 		if( cur.nodeIndex == -1 )
 		{
 			if( 0.0f < S_lmax ) // positive hit point only
 			{
-				*t = S_lmax; // S_lmax < *t is always true. max( a, 0 ) < min( b, t )  =>   a < t
+				*t = S_lmax;
 				*nMajor =
-					S_lmax == cur.tx0 ? 1 : ( S_lmax == cur.ty0 ? 2 : 0 );
-
+					S_lmax == tx0 ? 1 : 
+						( S_lmax == ty0 ? 2 : 0 );
 				*vIndex = cur.nVoxelSkipped;
+
 				// Since the traversal is in perfect order with respect to the ray direction, you can break it when you find a hit
 				break;
 			}
 			goto pop;
 		}
 
-		float txM = 0.5f * ( cur.tx0 + tx1 );
-		float tyM = 0.5f * ( cur.ty0 + ty1 );
-		float tzM = 0.5f * ( cur.tz0 + tz1 );
+		float txM = 0.5f * ( tx0 + cur.tx1 );
+		float tyM = 0.5f * ( ty0 + cur.ty1 );
+		float tzM = 0.5f * ( tz0 + cur.tz1 );
 
 		if( cur.childMask == 0xFFFFFFFF )
 		{
@@ -316,11 +352,17 @@ DEVICE void octreeTraverse_EfficientParametric(
 				( tzM < S_lmax ? 4u : 0u );
 		}
 
+#if defined( ENABLE_EMBEDED_MASK )
+		uint32_t mask = cur.nodeIndex >> 24;
+		const OctreeNode& node = nodes[cur.nodeIndex & 0xFFFFFF];
+#else
 		const OctreeNode& node = nodes[cur.nodeIndex];
+		uint32_t mask = node.mask;
+#endif
 
-		float x1 = ( cur.childMask & 1u ) ? tx1 : txM;
-		float y1 = ( cur.childMask & 2u ) ? ty1 : tyM;
-		float z1 = ( cur.childMask & 4u ) ? tz1 : tzM;
+		float x1 = ( cur.childMask & 1u ) ? cur.tx1 : txM;
+		float y1 = ( cur.childMask & 2u ) ? cur.ty1 : tyM;
+		float z1 = ( cur.childMask & 4u ) ? cur.tz1 : tzM;
 
 		for( ;; )
 		{
@@ -330,25 +372,25 @@ DEVICE void octreeTraverse_EfficientParametric(
 
 			bool hasNext = ( cur.childMask & mv ) == 0;
 			uint32_t childIndex = cur.childMask ^ vMask;
-			uint32_t currentChildMask = cur.childMask;
 			cur.childMask |= mv;
 
-			if( node.mask & ( 0x1 << childIndex ) )
+			if( ( mask & ( 0x1 << childIndex ) ) )
 			{
 				if( hasNext )
 				{
 					copyStackElement( stack[sp++], cur );
 				}
 				cur.nodeIndex = node.children[childIndex];
-				cur.tx0 = ( currentChildMask & 1u ) ? txM : cur.tx0;
-				cur.ty0 = ( currentChildMask & 2u ) ? tyM : cur.ty0;
-				cur.tz0 = ( currentChildMask & 4u ) ? tzM : cur.tz0;
+				cur.tx1 = x1;
+				cur.ty1 = y1;
+				cur.tz1 = z1;
 				cur.scale *= 0.5f;
-
 				cur.childMask = 0xFFFFFFFF;
 
-				uint32_t nSkipped = node.nVoxelsPSum[childIndex];
-				cur.nVoxelSkipped += nSkipped;
+				if( isShadowRay == false )
+				{
+					cur.nVoxelSkipped += node.nVoxelsPSum[childIndex];
+				}
 
 				goto next;
 			}
@@ -360,13 +402,13 @@ DEVICE void octreeTraverse_EfficientParametric(
 			switch( mv )
 			{
 			case 1:
-				x1 = tx1;
+				x1 = cur.tx1;
 				break;
 			case 2:
-				y1 = ty1;
+				y1 = cur.ty1;
 				break;
 			case 4:
-				z1 = tz1;
+				z1 = cur.tz1;
 				break;
 			}
 		}
@@ -399,6 +441,10 @@ DEVICE void octreeTraverse_EfficientParametric(
 		dst.childMask = src.childMask;
 		dst.nVoxelSkipped = src.nVoxelSkipped;
 	};
+
+#if defined( ENABLE_EMBEDED_MASK )
+	nodeIndex |= nodes[nodeIndex].mask << 24;
+#endif
 
 	int sp = 0;
 	StackElement cur = { nodeIndex, t0.x, t0.y, t0.z, S_lmaxTop, t1.x, t1.y, t1.z, 0xFFFFFFFF, 0 };
@@ -439,7 +485,13 @@ DEVICE void octreeTraverse_EfficientParametric(
 				( tzM < cur.S_lmax ? 4u : 0u );
 		}
 
+#if defined( ENABLE_EMBEDED_MASK )
+		uint32_t mask = cur.nodeIndex >> 24;
+		const OctreeNode& node = nodes[cur.nodeIndex & 0xFFFFFF];
+#else
 		const OctreeNode& node = nodes[cur.nodeIndex];
+		uint32_t mask = node.mask;
+#endif
 
 		float x1 = ( cur.childMask & 1u ) ? cur.tx1 : txM;
 		float y1 = ( cur.childMask & 2u ) ? cur.ty1 : tyM;
@@ -456,7 +508,7 @@ DEVICE void octreeTraverse_EfficientParametric(
 			uint32_t currentChildMask = cur.childMask;
 			cur.childMask |= mv;
 
-			if( node.mask & ( 0x1 << childIndex ) )
+			if( mask & ( 0x1 << childIndex ) )
 			{
 				if( hasNext )
 				{
@@ -471,9 +523,10 @@ DEVICE void octreeTraverse_EfficientParametric(
 				cur.tz1 = z1;
 				cur.S_lmax = maxElement( cur.tx0, cur.ty0, cur.tz0 );
 				cur.childMask = 0xFFFFFFFF;
-
-				uint32_t nSkipped = node.nVoxelsPSum[childIndex];
-				cur.nVoxelSkipped += nSkipped;
+				if( isShadowRay == false )
+				{
+					cur.nVoxelSkipped += node.nVoxelsPSum[childIndex];
+				}
 
 				goto next;
 			}
@@ -525,3 +578,29 @@ DEVICE inline T getHitN( int major, T rd )
 	return { 0.0f, 0.0f, 0.0f };
 }
 
+
+template <class T>
+DEVICE inline int bSearch( const T* xs, int n, T x )
+{
+	int i = 0;
+	int j = n;
+
+	while( i < j )
+	{
+		int m = ( i + j ) / 2;
+		T value = xs[m];
+		if( value == x )
+		{
+			return m;
+		}
+		else if( value < x )
+		{
+			i = m + 1;
+		}
+		else
+		{
+			j = m;
+		}
+	}
+	return -1;
+}

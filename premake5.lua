@@ -181,7 +181,9 @@ project "voxPTGPU"
     flags { "MultiProcessorCompile", "NoPCH" }
 
     -- Src
-    files { "voxPTGPU.cpp", "voxelization.hpp", "hipUtil.hpp" }
+    files { 
+        "voxPTGPU.cpp", "voxUtil.hpp", "hipUtil.hpp", 
+        "voxelization.hpp",  "IntersectorOctreeGPU.hpp", "voxCommon.hpp", "renderCommon.hpp", "pmjSampler", "PathTracer.hpp" }
 
     -- UTF8
     postbuildcommands { 
@@ -215,6 +217,53 @@ project "voxPTGPU"
     filter {"Release"}
         runtime "Release"
         targetname ("voxPTGPU")
+        optimize "Full"
+    filter{}
+
+project "RTCamp"
+    kind "ConsoleApp"
+    language "C++"
+    targetdir "bin/"
+    systemversion "latest"
+    flags { "MultiProcessorCompile", "NoPCH" }
+
+    -- Src
+    files { 
+        "RTCamp.cpp", "voxUtil.hpp", "hipUtil.hpp", 
+        "voxelization.hpp",  "IntersectorOctreeGPU.hpp", "voxCommon.hpp", "renderCommon.hpp", "pmjSampler", "PathTracer.hpp" }
+
+    -- UTF8
+    postbuildcommands { 
+        "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
+    }
+
+    -- Orochi
+    includedirs { "libs/orochi" }
+    files { "libs/orochi/Orochi/Orochi.h" }
+    files { "libs/orochi/Orochi/Orochi.cpp" }
+    includedirs { "libs/orochi/contrib/hipew/include" }
+    files { "libs/orochi/contrib/hipew/src/hipew.cpp" }
+    includedirs { "libs/orochi/contrib/cuew/include" }
+    files { "libs/orochi/contrib/cuew/src/cuew.cpp" }
+    links { "version" }
+    postbuildcommands { 
+        "{COPYFILE} ../libs/orochi/contrib/bin/win64/*.dll ../bin"
+    }
+
+    -- RadixSort
+    includedirs { "libs/tinyhipradixsort" }
+
+    includePrLib()
+
+    symbols "On"
+
+    filter {"Debug"}
+        runtime "Debug"
+        targetname ("RTCamp_Debug")
+        optimize "Off"
+    filter {"Release"}
+        runtime "Release"
+        targetname ("RTCamp")
         optimize "Full"
     filter{}
 
@@ -253,43 +302,3 @@ project "unittest"
         targetname ("unittest")
         optimize "Full"
     filter{}
-
--- project "main"
---     kind "ConsoleApp"
---     language "C++"
---     targetdir "bin/"
---     systemversion "latest"
---     flags { "MultiProcessorCompile", "NoPCH" }
-
---     -- Src
---     files { "main.cpp", "voxelization.hpp" }
-
---     -- UTF8
---     postbuildcommands { 
---         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
---     }
-
---     -- embree 4
---     libdirs { "libs/prlib/libs/embree4/lib" }
---     includedirs { "libs/prlib/libs/embree4/include" }
---     links{
---         "embree4",
---         "tbb",
---     }
---     postbuildcommands {
---         "{COPYFILE} ../libs/prlib/libs/embree4/bin/*.dll %{cfg.targetdir}/*.dll",
---     }
-
---     includePrLib()
-
---     symbols "On"
-
---     filter {"Debug"}
---         runtime "Debug"
---         targetname ("Main_Debug")
---         optimize "Off"
---     filter {"Release"}
---         runtime "Release"
---         targetname ("Main")
---         optimize "Full"
---     filter{}

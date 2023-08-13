@@ -10,11 +10,15 @@
 #include "hipUtil.hpp"
 #endif
 
+#define RENDER_NUMBER_OF_THREAD 256
+#define USE_PMJ 1
+
+
 class CameraPinhole
 {
 public:
 #if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
-	void initFromPerspective( glm::mat4 viewMatrix, glm::mat4 projMatrix )
+	void initFromPerspective( glm::mat4 viewMatrix, glm::mat4 projMatrix, float focus, float lensR )
 	{
 		glm::mat3 vT = glm::transpose( glm::mat3( viewMatrix ) );
 		m_front = { -vT[2].x, -vT[2].y, -vT[2].z };
@@ -25,6 +29,9 @@ public:
 		m_o = { -m.x, -m.y, -m.z };
 
 		m_tanHthetaY = 1.0f / projMatrix[1][1];
+
+		m_lensR = lensR;
+		m_focus = focus;
 	}
 #endif
 	DEVICE void shoot( float3* ro, float3* rd, int x, int y, float xoffsetInPixel, float yoffsetInPixel, int imageWidth, int imageHeight ) const
@@ -40,11 +47,40 @@ public:
 		*ro = m_o;
 		*rd = d;
 	}
+	DEVICE void shootThinLens( float3* ro, float3* rd, int x, int y, float xoffsetInPixel, float yoffsetInPixel, int imageWidth, int imageHeight, float u0, float u1 ) const
+	{
+		float xf = ( x + xoffsetInPixel ) / imageWidth;
+		float yf = ( y + yoffsetInPixel ) / imageHeight;
+
+		// local coords: 
+		float3 focalP = {
+			m_focus * mix( -m_tanHthetaY, m_tanHthetaY, xf ) * imageWidth / imageHeight,
+			m_focus * mix( m_tanHthetaY, -m_tanHthetaY, yf ),
+			m_focus
+		};
+		float3 lensP = {
+			mix( -m_lensR, m_lensR, u0 ),
+			mix( -m_lensR, m_lensR, u1 ),
+			0.0f
+		};
+		float3 dir = focalP - lensP;
+
+		// to world:
+		float3 d =
+			m_right * dir.x +
+			m_up * dir.y +
+			m_front * dir.z;
+		*rd = d;
+		*ro = m_o + m_right * lensP.x + m_up * lensP.y + m_front * lensP.z;
+	}
+
 	float3 m_o;
 	float3 m_front;
 	float3 m_up;
 	float3 m_right;
 	float m_tanHthetaY;
+	float m_lensR;
+	float m_focus;
 };
 
 struct PCG32
@@ -121,6 +157,19 @@ DEVICE inline float3 linearReflectance( uchar4 color )
 		INTRIN_POW( (float)color.y / 255.0f, 2.2f ),
 		INTRIN_POW( (float)color.z / 255.0f, 2.2f ) };
 }
+DEVICE inline float3 rawReflectance( uchar4 color )
+{
+	return {
+		(float)color.x / 255.0f,
+		(float)color.y / 255.0f,
+		(float)color.z / 255.0f };
+}
+
+template <class T>
+DEVICE inline float luminance( T color )
+{
+	return 0.2126f * color.x + 0.7152f * color.y + 0.0722f * color.z;
+}
 
 // forward: +x, up: +y
 DEVICE inline float2 getSpherical( float3 n )
@@ -128,6 +177,28 @@ DEVICE inline float2 getSpherical( float3 n )
 	float phi = atan2f( n.z, n.x ) + PI;
 	float theta = atan2f( INTRIN_SQRT( n.x * n.x + n.z * n.z ), n.y );
 	return { phi / ( PI * 2.0f ), theta / PI };
+}
+
+template <class F>
+DEVICE inline int upper_bound_f( F f, int n, float b )
+{
+	int i = 0;
+	int j = n;
+
+	while( i < j )
+	{
+		const int m = ( i + j ) / 2;
+		const float value = f( m );
+		if( value <= b )
+		{
+			i = m + 1;
+		}
+		else
+		{
+			j = m;
+		}
+	}
+	return i;
 }
 
 struct HDRI
@@ -241,6 +312,17 @@ struct HDRI
 
 		oroStreamSynchronize( stream );
 	}
+	void loadPrimary( float* ptr, oroStream stream )
+	{
+		if( m_pixelsPrimary )
+		{
+			oroFree( (oroDeviceptr)m_pixelsPrimary );
+		}
+
+		uint64_t pixelBytes = sizeof( float4 ) * m_width * m_height;
+		oroMalloc( (oroDeviceptr*)&m_pixelsPrimary, pixelBytes );
+		oroMemcpyHtoDAsync( (oroDeviceptr)m_pixelsPrimary, ptr, pixelBytes, stream );
+	}
 	void cleanUp()
 	{
 		if( m_pixels )
@@ -261,16 +343,21 @@ struct HDRI
 				m_sats[i] = 0;
 			}
 		}
+		if( m_pixelsPrimary )
+		{
+			oroFree( (oroDeviceptr)m_pixelsPrimary );
+			m_pixelsPrimary = 0;
+		}
 	}
 #else
-	DEVICE float3 sampleNearest( float3 direction ) const
+	DEVICE float3 sampleNearest( float3 direction, bool isPrimary ) const
 	{
 		float2 uv = getSpherical( direction );
 		int x = (int)ss_clamp( uv.x * m_width, 0.0f, (float)( m_width - 1.0f ) );
 		int y = (int)ss_clamp( uv.y * m_height, 0.0f, (float)( m_height - 1.0f ) );
 		uint64_t index = (uint64_t)y * m_width + x;
-		float4 c = m_pixels[index];
-		return { c.x, c.y, c.z };
+		float4 c = ( isPrimary && m_pixelsPrimary ) ? m_pixelsPrimary[index] : m_pixels[index];
+		return float3 { c.x, c.y, c.z } * m_scale;
 	}
 #endif
 	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, float u0, float u1, float u2, float u3 ) const
@@ -305,46 +392,12 @@ struct HDRI
 				sat = m_sats[5];
 			}
 		}
-
-		int i, j;
-
-		i = 0;
-		j = m_width - 1;
-		do {
-			int mid = ( i + j ) / 2;
-			float s = (float)getPrefixSumExclusiveH( sat, mid ) / (float)0xFFFFFFFFu;
-			if( u0 < s )
-			{
-				j = mid;
-			}
-			else
-			{
-				i = mid; // include mid when u0 == s
-			}
-		} while( i + 1 < j );
-
-		uint32_t X = i;
+		
+		uint32_t X = upper_bound_f( [this, sat]( int i ){ return (float)getPrefixSumExclusiveH( sat, i ) / (float)0xFFFFFFFFu; }, m_width, u0 ) - 1;
 
 		// H prefix sum range is not 0 to 0xFFFFFFFF need to adjust.
 		uint32_t vol = getPrefixSumExclusiveH( sat, X + 1 ) - getPrefixSumExclusiveH( sat, X );
-
-		i = 0;
-		j = m_height - 1;
-		do
-		{
-			int mid = ( i + j ) / 2;
-			float s = (float)getPrefixSumExclusiveV( sat, X, mid ) / (float)vol;
-			if( u1 < s )
-			{
-				j = mid;
-			}
-			else
-			{
-				i = mid; // include mid when u0 == s
-			}
-		} while( i + 1 < j );
-
-		uint32_t Y = i;
+		uint32_t Y = upper_bound_f( [this, sat, X, vol]( int i ){ return  (float)getPrefixSumExclusiveV( sat, X, i ) / (float)vol; }, m_height, u1 ) - 1;
 
 		float pSelection = (float)getCount( sat, X, Y ) / (float)0xFFFFFFFF;
 
@@ -374,7 +427,7 @@ struct HDRI
 		*srPDF = pSelection / sr;
 
 		float4 color = m_pixels[Y * m_width + X];
-		*L = { color.x, color.y, color.z };
+		*L = float3{ color.x, color.y, color.z } * m_scale;
 	}
 
 	DEVICE uint32_t getPrefixSumExclusiveH( const uint32_t* sat, uint32_t x ) const
@@ -407,9 +460,65 @@ struct HDRI
 		return ( d - b ) + ( a - c );
 	}
 
+	DEVICE bool isEnabled() const
+	{
+		return 0.0f < m_scale;
+	}
+
 	float4* m_pixels = 0;
+	float4* m_pixelsPrimary = 0;
 	uint32_t* m_sat = 0;
 	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
+	float m_scale = 1.75f;
 };
+
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+inline uint32_t gcd( uint32_t a, uint32_t b )
+{
+	if( b == 0 )
+		return a;
+	return gcd( b, a % b );
+}
+#endif
+
+// from "Bandwidth-Optimal Random Shuffling for GPUs"
+struct LCGShuffler
+{
+	uint32_t a = 1;
+	uint32_t c = 0;
+	uint32_t n = 0;
+
+	// ( a * x + c ) mod n
+	DEVICE uint32_t operator()( uint32_t i ) const
+	{
+		return ( static_cast<uint64_t>( i ) * a + c ) % n;
+	}
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	// return true if succeeded
+	bool tryInit( uint32_t r0, uint32_t r1, uint32_t numberOfElement )
+	{
+		a = r0;
+		c = r1;
+		n = numberOfElement;
+		return gcd( a, n ) == 1;
+	}
+#endif
+};
+
+//DEVICE inline float fresnelSchlick( float cosTheta, float n1, float n2 )
+//{
+//	float r = ( n1 - n2 ) / ( n1 + n2 );
+//	float R0 = r * r;
+//	float k = 1.0f - cosTheta;
+//	float kk = k * k;
+//	return R0 + ( 1.0f - R0 ) * kk * kk * k;
+//}
+//DEVICE inline float3 reflect( float3 I, float3 N )
+//{
+//	return I - N * dot( N, I ) * 2.0f;
+//}
+
+
+

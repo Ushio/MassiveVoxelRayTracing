@@ -3,30 +3,13 @@
 #include <memory>
 #include <set>
 
-#include "voxUtil.hpp"
 #include "Orochi/Orochi.h"
 #include "Orochi/OrochiUtils.h"
-#include "hipUtil.hpp"
 
-#include "IntersectorOctreeGPU.hpp"
-#include "voxCommon.hpp"
-#include "renderCommon.hpp"
-#include "pmjSampler.hpp"
-
-#define RENDER_NUMBER_OF_THREAD 64
-
-inline float3 toFloat3( glm::vec3 v )
-{
-	return { v.x, v.y, v.z };
-}
-
-
+#include "PathTracer.hpp"
 
 int main()
 {
-	// PMJSampler pmjcpu;
-	// pmjcpu.setup( false, 0 );
-
 	using namespace pr;
 	SetDataDir( ExecutableDir() );
 
@@ -55,27 +38,6 @@ int main()
 	printf( "Device: %s\n", props.name );
 	printf( "Cuda: %s\n", isNvidia ? "Yes" : "No" );
 
-	std::vector<char> voxSrc;
-	loadFileAsVector( &voxSrc, GetDataPath( "../voxKernel.cu" ).c_str() );
-	voxSrc.push_back( '\0' );
-
-	std::vector<std::string> compilerArgs;
-	compilerArgs.push_back( "-I" + GetDataPath( "../" ) ); 
-
-	if( isNvidia )
-	{
-		// compilerArgs.push_back( "-G" );
-		 compilerArgs.push_back( "--generate-line-info" );
-
-		// ITS enabled
-		compilerArgs.push_back( "--gpu-architecture=compute_70" );
-	}
-	else
-	{
-		compilerArgs.push_back( "-g" );
-	}
-	Shader voxKernel( voxSrc.data(), "voxKernel.cu", compilerArgs );
-
 	Config config;
 	config.ScreenWidth = 1920;
 	config.ScreenHeight = 1080;
@@ -87,19 +49,25 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	const char* input = "bunnyColor.abc";
+	int frame = 0;
+	float focus = 7.0f;
+	float lensR = 0.0f;
+
+	//const char* input = "bunnyColor.abc";
+	const char* input = "output.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
-	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
 
-	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
-	{ 
-		if( cameraEntity->visible() )
-		{
-			camera = cameraFromEntity( cameraEntity.get() );
-		} 
-	} );
+	std::shared_ptr<FScene> scene = ar.readFlat( 60, errorMsg );
+	//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	//{ 
+	//	if( cameraEntity->visible() )
+	//	{
+	//		camera = cameraFromEntity( cameraEntity.get() );
+	//		focus = cameraEntity->focusDistance();
+	//	} 
+	//} );
 
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;
@@ -108,47 +76,29 @@ int main()
     std::vector<glm::vec3> vertices;
 	std::vector<glm::vec3> vcolors;
 	std::vector<glm::vec3> vemissions;
-	trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
+	// trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
 
-	// GPU buffer
-	Buffer counterBuffer( sizeof( uint32_t ) );
-	IntersectorOctreeGPU intersectorOctreeGPU;
-
-	// power of 2 for nElementPerThread weirdly gives performance down on HIP platform when sizeof(StackElement) % 32 == 0
-	// 37 is a workaround.
-	DynamicAllocatorGPU<StackElement> stackAllocator;
-	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, 37 /* nElementPerThread */, stream );
-
-	Image2DRGBA32 hdriSrc;
-	hdriSrc.loadFromHDR( "brown_photostudio_02_2k.hdr" );
-	// hdriSrc.loadFromHDR( "modern_buildings_2_2k.hdr" );
-	
-	HDRI hdri;
-	hdri.load( glm::value_ptr( *hdriSrc.data() ), hdriSrc.width(), hdriSrc.height(), &voxKernel, stream );
-
-	PMJSampler pmj;
-	pmj.setup( true, stream );
-
-	int iteration = 0;
-	std::unique_ptr<Buffer> frameBufferU8;
-	std::unique_ptr<Buffer> frameBufferF32;
+	PathTracer pt;
+	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
+	pt.resizeFrameBufferIfNeeded( stream, GetScreenWidth(), GetScreenHeight() );
+	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
 
 	bool sixSeparating = true;
 	int gridRes = 512;
 	bool drawModel = false;
-	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
+
 
 	pr::ITexture* bgTexture = 0;
 
 	SetDepthTest( true );
 
+	bool sceneChanged = false;
 	while( pr::NextFrame() == false )
 	{
-		bool sceneChanged = false;
 		if( IsImGuiUsingMouse() == false )
 		{
-			sceneChanged = UpdateCameraBlenderLike( &camera );
+			sceneChanged = sceneChanged || UpdateCameraBlenderLike( &camera );
 		}
 		if( bgTexture )
 		{
@@ -185,72 +135,58 @@ int main()
 			PrimEnd();
 		}
 		double buildMS = 0.0;
+		double cpuProcessMS = 0.0;
 		if (buildAccelerationStructure)
 		{
+			Stopwatch sw;
+			std::shared_ptr<FScene> scene = ar.readFlat( frame, errorMsg );
+
+			//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity ){ 
+			//if( cameraEntity->visible() )
+			//{
+			//	camera = cameraFromEntity( cameraEntity.get() );
+			//} } );
+
+			trianglesFlattened( scene, &vertices, &vcolors, &vemissions );
+
+			glm::vec3 bbox_lower;
+			glm::vec3 bbox_upper;
+			getBoundingBox( vertices, &bbox_lower, &bbox_upper );
+			glm::vec3 bbox_size = bbox_upper - bbox_lower;
+			float dps = glm::max( glm::max( bbox_size.x, bbox_size.y ), bbox_size.z ) / (float)gridRes;
+
+			cpuProcessMS = sw.elapsed() * 1000.0;
+
 			OroStopwatch oroStream( stream );
 			oroStream.start();
-			intersectorOctreeGPU.build( vertices, vcolors, &voxKernel, stream, gridRes );
+			pt.updateScene( vertices, vcolors, vemissions, stream, bbox_lower, dps, gridRes );
 			oroStream.stop();
 			buildMS = oroStream.getMs();
 		}
 
-		Image2DRGBA8 image;
+		static Image2DRGBA8 image;
 		image.allocate( GetScreenWidth(), GetScreenHeight() );
 
-		CameraPinhole pinhole;
-		pinhole.initFromPerspective( GetCurrentViewMatrix(), GetCurrentProjMatrix() );
+		pt.resizeFrameBufferIfNeeded( stream, GetScreenWidth(), GetScreenHeight() );
 
 		double renderMS = 0;
 		{
-			OroStopwatch oroStream( stream );
-			oroStream.start();
-
-			auto frameBufferF32Bytes = image.width() * image.height() * sizeof( float4 );
-			if( !frameBufferF32 || frameBufferF32->bytes() != frameBufferF32Bytes )
-			{
-				frameBufferF32 = std::unique_ptr<Buffer>( new Buffer( frameBufferF32Bytes ) );
-				oroMemsetD32Async( (oroDeviceptr)frameBufferF32->data(), 0, frameBufferF32->bytes() / 4, stream );
-			}
-			auto frameBufferU8Bytes = image.width() * image.height() * sizeof( uchar4 );
-			if( !frameBufferU8 || frameBufferU8->bytes() != frameBufferU8Bytes )
-			{
-				frameBufferU8 = std::unique_ptr<Buffer>( new Buffer( frameBufferU8Bytes ) );
-			}
-
 			if( sceneChanged )
 			{
-				iteration = 0;
-				oroMemsetD32Async( (oroDeviceptr)frameBufferF32->data(), 0, frameBufferF32->bytes() / 4, stream );
+				pt.clearFrameBuffer( stream );
+				sceneChanged = false;
 			}
 
-			{
-				ShaderArgument args;
-				args.add( iteration++ );
-				args.add( frameBufferF32->data() );
-				args.add<int2>( { image.width(), image.height() } );
-				args.add( pinhole );
-				args.add( intersectorOctreeGPU );
-				args.add( stackAllocator );
-				args.add( hdri );
-				args.add( pmj );
-
-				voxKernel.launch( "renderPT", args, div_round_up64( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
-			}
-			{
-				ShaderArgument args;
-				args.add( frameBufferU8->data() );
-				args.add( frameBufferF32->data() );
-				args.add( image.width() * image.height() );
-				voxKernel.launch( "renderResolve", args, div_round_up64( image.width() * image.height(), 128 ), 1, 1, 128, 1, 1, stream );
-			}
-
+			OroStopwatch oroStream( stream );
+			oroStream.start();
+			pt.step( stream, camera, focus, lensR );
 			oroStream.stop();
 			renderMS = oroStream.getMs();
 
-			oroMemcpyDtoHAsync( image.data(), (oroDeviceptr)frameBufferU8->data(), image.width() * image.height() * sizeof( uchar4 ), stream );
+			pt.toImageAsync( stream, &image );
 			oroStreamSynchronize( stream );
 
-			if( iteration == 16 )
+			if( pt.getSteps() == 16 )
 			{
 				image.saveAsPng( "render_first.png" );
 			}
@@ -271,17 +207,19 @@ int main()
 		ImGui::Begin( "Panel" );
 		ImGui::Text( "device = %s", props.name );
 		ImGui::Text( "fps = %f", GetFrameRate() );
-		ImGui::Text( "iteration = %d", iteration );
+		ImGui::Text( "iteration = %d", pt.getSteps() );
 
 		ImGui::SeparatorText( "Voxlizaiton" );
 		ImGui::InputInt( "gridRes", &gridRes );
 		if( ImGui::Button( "+", ImVec2( 100, 30 ) ) )
 		{
 			gridRes *= 2;
+			sceneChanged = true;
 		}
 		if( ImGui::Button( "-", ImVec2( 100, 30 ) ) )
 		{
 			gridRes /= 2;
+			sceneChanged = true;
 		}
 		ImGui::Checkbox( "sixSeparating", &sixSeparating );
 		
@@ -296,10 +234,25 @@ int main()
 		}
 
 		ImGui::Checkbox( "buildAccelerationStructure", &buildAccelerationStructure );
-		ImGui::Checkbox( "showVertexColor", &showVertexColor );
+		if( ImGui::SliderInt( "frame", &frame, 0, ar.frameCount() - 1 ) )
+		{
+			sceneChanged = true;
+		}
+		if( ImGui::InputFloat( "focus distance", &focus ) )
+		{
+			sceneChanged = true;
+		}
+		if( ImGui::SliderFloat( "lens radius", &lensR, 0.0f, 1.0f ) )
+		{
+			sceneChanged = true;
+		}
+
+		ImGui::Text( "build cpu(ms) = %f", cpuProcessMS );
 		ImGui::Text( "build(ms) = %f", buildMS );
+		
 		ImGui::Text( "render(ms) = %f", renderMS );
-		ImGui::Text( "octree   = %lld byte", intersectorOctreeGPU.m_numberOfNodes * sizeof( OctreeNode ) );
+		ImGui::Text( "voxels   = %lld", pt.getNumberOfVoxels() );
+		ImGui::Text( "octree   = %lld byte", pt.getOctreeBytes() );
 		
 		if( ImGui::Button( "Save Image" ) )
 		{
@@ -310,9 +263,7 @@ int main()
 
 		EndImGui();
 	}
-
-	intersectorOctreeGPU.cleanUp();
-	stackAllocator.cleanUp();
+	pt.cleanUp();
 
 	pr::CleanUp();
 }
