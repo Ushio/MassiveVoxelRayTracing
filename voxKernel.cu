@@ -55,7 +55,7 @@ __device__ void clearShared( T* sMem, T value )
 	}
 }
 
-extern "C" __global__ void voxCount( const float3* vertices, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
+extern "C" __global__ void __launch_bounds__( VOXELIZE_BLOCK_THREADS ) voxCount( const float3* vertices, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes )
 {
 	uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -88,7 +88,7 @@ extern "C" __global__ void voxCount( const float3* vertices, uint32_t nTriangles
 		atomicAdd( counter, nVoxels );
 	}
 }
-extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolors, const float3* vemissions, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes, uint64_t* mortonVoxels, VoxelAttirb* voxelAttribs )
+extern "C" __global__ void __launch_bounds__( VOXELIZE_BLOCK_THREADS ) voxelize( const float3* vertices, const float3* vcolors, const float3* vemissions, uint32_t nTriangles, uint32_t* counter, float3 origin, float dps, uint32_t gridRes, uint64_t* mortonVoxels, VoxelAttirb* voxelAttribs )
 {
 	uint32_t iTri = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -126,6 +126,7 @@ extern "C" __global__ void voxelize( const float3* vertices, const float3* vcolo
 				}
 			}
 		}
+
 		uint32_t dstLocation = atomicAdd( counter, nVoxels );
 		nVoxels = 0;
 

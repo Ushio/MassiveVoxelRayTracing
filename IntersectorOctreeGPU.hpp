@@ -16,6 +16,8 @@
 #define BOTTOM_UP_BLOCK_SIZE 4096
 #define BOTTOM_UP_BLOCK_THREADS 1024
 
+#define VOXELIZE_BLOCK_THREADS 128
+
 struct IntersectorOctreeGPU
 {
 	DEVICE IntersectorOctreeGPU() {}
@@ -85,7 +87,7 @@ struct IntersectorOctreeGPU
 			args.add( origin );
 			args.add( dps );
 			args.add( (uint32_t)gridRes );
-			voxKernel->launch( "voxCount", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
+			voxKernel->launch( "voxCount", args, div_round_up64( nTriangles, VOXELIZE_BLOCK_THREADS ), 1, 1, VOXELIZE_BLOCK_THREADS, 1, 1, stream );
 		}
 
 		uint32_t totalDumpedVoxels = 0;
@@ -114,7 +116,7 @@ struct IntersectorOctreeGPU
 			args.add( (uint32_t)gridRes );
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
-			voxKernel->launch( "voxelize", args, div_round_up64( nTriangles, 128 ), 1, 1, 128, 1, 1, stream );
+			voxKernel->launch( "voxelize", args, div_round_up64( nTriangles, VOXELIZE_BLOCK_THREADS ), 1, 1, VOXELIZE_BLOCK_THREADS, 1, 1, stream );
 		}
 
 		{
