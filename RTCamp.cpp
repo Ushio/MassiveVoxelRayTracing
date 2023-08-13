@@ -22,7 +22,7 @@ uint32_t next_power_of_two(uint32_t v)
 	return v;
 }
 
-int main()
+int main( int argc, char* argv[] )
 {
 	using namespace pr;
 	Stopwatch sw;
@@ -39,6 +39,13 @@ int main()
 	int renderHeigt = 900;
 	int beginFrame = 0;
 	int endFrame = 240;
+
+	if( 4 <= argc )
+	{
+		beginFrame = atoi( argv[2] );
+		endFrame = atoi( argv[3] );
+		printf( "frame specified: %d %d\n", beginFrame, endFrame );
+	}
 
 	int totalFrames = 240;
 
