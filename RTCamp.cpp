@@ -26,6 +26,10 @@ int main( int argc, char* argv[] )
 {
 	using namespace pr;
 	Stopwatch sw;
+
+	printf( "Expected arguments:\n" );
+	printf( "  [instance 0] RTCamp --frame-range 0 156\n" );
+	printf( "  [instance 1] RTCamp --frame-range 156 240\n" );
 	
 	SetDataDir( ExecutableDir() );
 
@@ -74,7 +78,12 @@ int main( int argc, char* argv[] )
 	const char* input = "output.abc";
 	AbcArchive ar;
 	std::string errorMsg;
-	ar.open( GetDataPath( input ), errorMsg );
+	if( ar.open( GetDataPath( input ), errorMsg ) == AbcArchive::Result::Failure )
+	{
+		printf( "can't open scene file %s. Reason:\n", input );
+		printf( "%s\n", errorMsg.c_str() );
+		return 1;
+	}
 
 	// Scene data
 	Camera3D camera;
