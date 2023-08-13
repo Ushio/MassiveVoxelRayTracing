@@ -35,8 +35,8 @@ int main()
 		return 0;
 	}
 	int deviceIdx = 0;
-	int renderWidth = 1536;
-	int renderHeigt = 960;
+	int renderWidth = 1440;
+	int renderHeigt = 900;
 	int beginFrame = 0;
 	int endFrame = 240;
 
@@ -94,7 +94,16 @@ int main()
 	loadSceneFrame( beginFrame ); // load first frame
 
 	PathTracer pt;
-	pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
+	if( FILE* fp = fopen( GetDataPath( "../voxKernel.cu" ).c_str(), "rb" ) )
+	{
+		fclose( fp );
+		pt.setup( stream, GetDataPath( "../voxKernel.cu" ).c_str(), GetDataPath( "../" ).c_str(), isNvidia );
+	}
+	else
+	{
+		pt.setup( stream, GetDataPath( "./voxKernel.cu" ).c_str(), GetDataPath( "./" ).c_str(), isNvidia );
+	}
+
 	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
 	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
 
@@ -105,12 +114,12 @@ int main()
 		frameBufferPool.push( new Buffer( (uint64_t)renderWidth * renderHeigt * sizeof( uchar4 ) ) );
 	}
 
-	glm::vec3 center = { -0.131793f, -1.40424f, -3.77277f };
-	float boxWide = 15.0f;
+	glm::vec3 center = { 3.16434f, -1.40424f, -3.77277f };
+	float boxWide = 20.0f;
 	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
 
-	int fromRes = 256;
-	int toRes = 4096; // 4096;
+	int fromRes = 400;
+	int toRes = 8192; // 4096;
 	for( int frame = beginFrame; frame < endFrame; frame++ )
 	{
 		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
