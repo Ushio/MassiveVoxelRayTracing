@@ -30,9 +30,16 @@ binFiles = {
 }
 
 for file in binFiles:
-    print( os.path.join( "bin", file ) )
-    print( os.path.join( packageDir, file ))
     shutil.copy2( os.path.join( "bin", file ), os.path.join( packageDir, file ) )
+
+otherFiles = {
+    "fps.txt",
+    "renderer_introduction.pptx",
+    "run.ps1",
+    "run.py",
+}
+for file in otherFiles:
+    shutil.copy2( os.path.join( "usecase2_submission", file ), os.path.join( packageDir, file ) )
 
 # CUDA
 cuda_path = os.environ.get('CUDA_PATH')
