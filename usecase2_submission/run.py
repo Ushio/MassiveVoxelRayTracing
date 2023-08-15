@@ -8,7 +8,7 @@ inst_addr1 = sys.argv[2]
 key_path = R'C:\Users\Administrator\.ssh\id_rsa'
 
 # ノンブロッキング、つまりローカルのコマンドの終了は待たない。
-local_commands = R'RTCamp --frame-range 0 156'
+local_commands = R'RTCamp --frame-range 0 163'
 local_process = subprocess.Popen(local_commands.split(' '))
 
 ssh = paramiko.SSHClient()
@@ -19,7 +19,7 @@ ssh.connect(inst_addr1, username='administrator', pkey=key)
 # ノンブロッキング、つまりリモートのコマンドの終了は待たない。
 remote_commands = R"""
 cd $home\usecase2_submission
-.\RTCamp --frame-range 156 240
+.\RTCamp --frame-range 163 240
 """
 (_, remote_stdout, remote_stderr) = ssh.exec_command(remote_commands)
 

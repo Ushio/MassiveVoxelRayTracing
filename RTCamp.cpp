@@ -28,8 +28,8 @@ int main( int argc, char* argv[] )
 	Stopwatch sw;
 
 	printf( "Expected arguments:\n" );
-	printf( "  [instance 0] RTCamp --frame-range 0 156\n" );
-	printf( "  [instance 1] RTCamp --frame-range 156 240\n" );
+	printf( "  [instance 0] RTCamp --frame-range 0 163\n" );
+	printf( "  [instance 1] RTCamp --frame-range 163 240\n" );
 	
 	SetDataDir( ExecutableDir() );
 
@@ -134,8 +134,8 @@ int main( int argc, char* argv[] )
 	float boxWide = 20.0f;
 	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
 
-	int fromRes = 400;
-	int toRes = 8192; // 4096;
+	int fromRes = 150;
+	int toRes = 3000;
 	for( int frame = beginFrame; frame < endFrame; frame++ )
 	{
 		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
@@ -193,7 +193,7 @@ int main( int argc, char* argv[] )
 			taskGroup.doneElements( 1 );
 		} );
 
-		printf( "[frame %d] total( %.1f s ) / update %.3f / render %.3f\n", frame, sw.elapsed(), swUpdate.getMs(), swRender.getMs() );
+		printf( "[frame %d] res( %d ) total( %.1f s ) / update %.3f / render %.3f\n", frame, resolution, sw.elapsed(), swUpdate.getMs(), swRender.getMs() );
 	}
 	taskGroup.waitForAllElementsToFinish();
 

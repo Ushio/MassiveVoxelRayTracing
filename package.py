@@ -1,12 +1,10 @@
 import os
 import shutil
 
-packageDir = "RTCampPackage"
+packageDir = "ushio_gpu"
 
 if not os.path.exists(packageDir):
     os.makedirs(packageDir)
-# if not os.path.exists(os.path.join(packageDir, "bin")):
-#     os.makedirs(os.path.join(packageDir, "bin"))
 
 srcDir = "."
 for file in os.listdir(srcDir):
