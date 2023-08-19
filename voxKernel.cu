@@ -655,7 +655,6 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 
 		for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
 		{
-			// float3 R = linearReflectance( intersector.getVoxelColor( vIndex ) );
 			float3 R = rawReflectance( intersector.getVoxelColor( vIndex ) );
 			float3 hitN = getHitN( nMajor, rd );
 			float3 hitP = ro + rd * t;

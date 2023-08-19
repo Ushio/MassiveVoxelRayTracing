@@ -78,7 +78,7 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	const char* input = "bunnyColor.abc";
+	const char* input = "bunny.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );

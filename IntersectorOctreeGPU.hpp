@@ -257,7 +257,7 @@ struct IntersectorOctreeGPU
 	}
 	DEVICE float3 getVoxelEmission( uint32_t vIndex, bool withScale ) const
 	{
-		return linearReflectance( m_vAttributeBuffer[vIndex].emission ) * ( withScale ? m_emissionScale : 1.0f );
+		return rawReflectance( m_vAttributeBuffer[vIndex].emission ) * ( withScale ? m_emissionScale : 1.0f );
 	}
 #endif
 	VoxelAttirb* m_vAttributeBuffer = 0;

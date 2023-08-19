@@ -73,7 +73,7 @@ int main()
 
 	SetDataDir( ExecutableDir() );
 
-	const char* input = "bunnyColor.abc";
+	const char* input = "bunny.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );

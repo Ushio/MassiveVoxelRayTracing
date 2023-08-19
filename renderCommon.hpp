@@ -150,7 +150,7 @@ DEVICE inline float3 sampleLambertian( float a, float b, const float3& Ng )
 	return xaxis * x + yaxis * y + Ng * z;
 }
 
-DEVICE inline float3 linearReflectance( uchar4 color )
+DEVICE inline float3 degammaReflectance( uchar4 color )
 {
 	return {
 		INTRIN_POW( (float)color.x / 255.0f, 2.2f ),

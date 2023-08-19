@@ -234,7 +234,7 @@ int main()
 	camera.zUp = false;
 
 	// const char* input = "bunny.obj";
-	const char* input = "bunnyColor.abc";
+	const char* input = "bunny.abc";
 	// const char* input = "color.abc";
 	SetDataDir( ExecutableDir() );
 
