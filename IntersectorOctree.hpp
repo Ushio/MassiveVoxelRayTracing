@@ -192,6 +192,7 @@ inline void buildOctreeNaive( std::vector<OctreeNode>* nodes, const std::vector<
 				uint32_t space = curTasks[j].morton & 0x7;
 				node.mask |= ( 1 << space ) & 0xFF;
 				node.children[space] = curTasks[j].child;
+				node.nVoxelsPSum[space] = 0; // not supported yet.
 			}
 
 			uint32_t c = nodes->size();
