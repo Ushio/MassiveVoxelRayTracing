@@ -8,6 +8,9 @@
 // The number of nodes must be smaller than 0xFFFFFF. 
 #define ENABLE_EMBEDED_MASK 1
 
+// GPU optimization for smaller stack IO
+#define SMALL_STACK 1
+
 #if defined( __CUDACC__ ) || defined( __HIPCC__ )
 #ifndef DEVICE
 #define DEVICE __device__
@@ -195,7 +198,6 @@ DEVICE void embedMask( OctreeNode* nodes, uint32_t nodeIndex )
 #define LP_LOCK         0xFFFFFFFF
 #define LP_VALUE_BIT    0x7FFFFFFF
 
-#define SMALL_STACK 1
 #if defined( SMALL_STACK )
 struct alignas(16) StackElement
 {
@@ -315,13 +317,6 @@ DEVICE void octreeTraverse_EfficientParametric(
 		float tx0 = cur.tx1 - dt.x * cur.scale;
 		float ty0 = cur.ty1 - dt.y * cur.scale;
 		float tz0 = cur.tz1 - dt.z * cur.scale;
-
-		// came here so that S_lmax < S_umin ; however, reject it when the box is totally behind. Otherwise, there are potential hits.
-		if( minElement( cur.tx1, cur.ty1, cur.tz1 ) < 0.0f )
-		{
-			goto pop;
-		}
-
 		float S_lmax = maxElement( tx0, ty0, tz0 );
 
 		if( cur.nodeIndex == -1 )
@@ -367,14 +362,17 @@ DEVICE void octreeTraverse_EfficientParametric(
 		for( ;; )
 		{
 			// find minimum( x1, y1, z1 ) for next hit
-			uint32_t mv =
-				x1 < y1 ? ( x1 < z1 ? 1u : 4u ) : ( y1 < z1 ? 2u : 4u );
+			float S_umin_next = minElement( x1, y1, z1 );
+			uint32_t mv = S_umin_next == x1 ? 1u : ( S_umin_next == y1 ? 2u : 4u );
 
 			bool hasNext = ( cur.childMask & mv ) == 0;
 			uint32_t childIndex = cur.childMask ^ vMask;
 			cur.childMask |= mv;
 
-			if( ( mask & ( 0x1 << childIndex ) ) )
+			// the overlap is totally behind.
+			bool isBehind = S_umin_next < 0.0f;
+
+			if( ( mask & ( 0x1 << childIndex ) ) && isBehind == false )
 			{
 				if( hasNext )
 				{
