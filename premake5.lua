@@ -39,6 +39,7 @@ project "voxTriangle"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -68,6 +69,7 @@ project "voxMesh"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -97,6 +99,7 @@ project "voxRT"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -140,6 +143,7 @@ project "voxRTGPU"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -187,6 +191,7 @@ project "voxPTGPU"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -234,6 +239,7 @@ project "RTCamp"
 
     -- UTF8
     postbuildcommands { 
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
@@ -285,7 +291,8 @@ project "unittest"
     includedirs { "libs/orochi" }
     
     -- UTF8
-    postbuildcommands { 
+    postbuildcommands {
+        "powershell -Command \"Start-Sleep -Milliseconds 100\"",
         "mt.exe -manifest ../utf8.manifest -outputresource:\"$(TargetDir)$(TargetName).exe\" -nologo"
     }
 
