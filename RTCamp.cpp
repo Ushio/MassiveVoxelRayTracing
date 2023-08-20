@@ -188,7 +188,7 @@ int main( int argc, char* argv[] )
 
 			Stopwatch swSave;
 			char output[256];
-			sprintf( output, "render_%03d.png", frame );
+			sprintf( output, "%03d.png", frame );
 			image.saveAsPngUncompressed( GetDataPath( output ).c_str() );
 			taskGroup.doneElements( 1 );
 		} );
