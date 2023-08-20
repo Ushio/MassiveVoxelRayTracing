@@ -348,7 +348,7 @@ int main()
 				renderLine( j );
 			}
 		}
-		double RT_MS = sw.elapsed();
+		double RT_S = sw.elapsed();
 
 		if( bgTexture == nullptr )
 		{
@@ -401,7 +401,9 @@ int main()
 		ImGui::Text( "embree build(ms) = %f", embreeBuildMS );
 		ImGui::Text( "octree   = %lld byte", octreeVoxel->getMemoryConsumption() );
 		ImGui::Text( "embree = %lld byte", embreeVoxel->getMemoryConsumption() );
-		ImGui::Text( "RT (ms) = %f", RT_MS );
+		ImGui::Text( "voxels = %lld", mortonVoxels.size() );
+
+		ImGui::Text( "RT (s) = %f", RT_S );
 		ImGui::Checkbox( "renderParallel", &renderParallel );
 		ImGui::RadioButton( "Intersector: Octree", &intersector, INTERSECTOR_OCTREE );
 		ImGui::RadioButton( "Intersector: Embree", &intersector, INTERSECTOR_EMBREE );
