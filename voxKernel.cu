@@ -681,7 +681,6 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 			}
 
 			float2 u01 = SAMPLE_2D();
-			float2 u23 = SAMPLE_2D();
 
 			T *= R;
 			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
