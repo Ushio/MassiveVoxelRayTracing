@@ -28,8 +28,8 @@ int main( int argc, char* argv[] )
 	Stopwatch sw;
 
 	printf( "Expected arguments:\n" );
-	printf( "  [instance 0] RTCamp --frame-range 0 163\n" );
-	printf( "  [instance 1] RTCamp --frame-range 163 240\n" );
+	printf( "  [instance 0] RTCamp --frame-range 0 166\n" );
+	printf( "  [instance 1] RTCamp --frame-range 166 240\n" );
 	
 	SetDataDir( ExecutableDir() );
 
@@ -134,8 +134,8 @@ int main( int argc, char* argv[] )
 	float boxWide = 20.0f;
 	glm::vec3 origin = center - glm::vec3( boxWide * 0.5f );
 
-	int fromRes = 150;
-	int toRes = 3000;
+	int fromRes = 200;
+	int toRes = 4000;
 	for( int frame = beginFrame; frame < endFrame; frame++ )
 	{
 		float dps = glm::mix( boxWide / fromRes, boxWide / toRes, (float)frame / totalFrames );
