@@ -12,7 +12,7 @@
 
 #define RENDER_NUMBER_OF_THREAD 256
 #define USE_PMJ 1
-
+#define EXTRA_IMPLICIT_SAMPLING 1
 
 class CameraPinhole
 {

@@ -680,9 +680,29 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 				}
 			}
 
-			float2 u01 = SAMPLE_2D();
-
 			T *= R;
+
+#if defined( EXTRA_IMPLICIT_SAMPLING )
+			if( depth == 0 )
+			{
+				float2 u01 = SAMPLE_2D();
+
+				float3 dir = sampleLambertian( u01.x, u01.y, hitN );
+
+				// no self intersection
+				float t = MAX_FLOAT;
+				int nMajor;
+				uint32_t vIndex = 0;
+				intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex, false /* isShadowRay */ );
+				float3 Le = intersector.getVoxelEmission( vIndex, true );
+				if( t != MAX_FLOAT )
+				{
+					L += T * Le * 0.5f;
+				}
+			}
+#endif
+
+			float2 u01 = SAMPLE_2D();
 			float3 dir = sampleLambertian( u01.x, u01.y, hitN );
 
 			ro = hitP; // no self intersection
@@ -694,7 +714,12 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 			if( t != MAX_FLOAT )
 			{
 				float3 Le = intersector.getVoxelEmission( vIndex, true );
+
+#if defined( EXTRA_IMPLICIT_SAMPLING )
+				L += T * Le * ( depth == 0 ? 0.5f : 1.0f );
+#else
 				L += T * Le;
+#endif
 			}
 		}
 
