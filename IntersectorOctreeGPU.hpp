@@ -66,10 +66,12 @@ struct IntersectorOctreeGPU
 		Buffer vcolorBuffer( sizeof( float3 ) * vcolors.size() );
 		Buffer vemissionBuffer( sizeof( float3 ) * vemissions.size() );
 		Buffer counterBuffer( sizeof( uint32_t ) );
+		Buffer hasEmissionBuffer( sizeof( uint32_t ) );
 
 		oroMemcpyHtoD( (oroDeviceptr)vertexBuffer.data(), const_cast<glm::vec3*>( vertices.data() ), vertexBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vcolorBuffer.data(), const_cast<glm::vec3*>( vcolors.data() ), vcolorBuffer.bytes() );
 		oroMemcpyHtoD( (oroDeviceptr)vemissionBuffer.data(), const_cast<glm::vec3*>( vemissions.data() ), vemissionBuffer.bytes() );
+		oroMemsetD32Async( (oroDeviceptr)hasEmissionBuffer.data(), 0, 1, stream );
 
 		StreamCompaction streamCompaction;
 
@@ -142,6 +144,7 @@ struct IntersectorOctreeGPU
 			args.add( outputVoxelAttribsBuffer );
 			args.add( totalDumpedVoxels );
 			args.add( streamCompaction );
+			args.add( hasEmissionBuffer.data() );
 			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
 			m_numberOfVoxels = streamCompaction.readCounter( stream );
 
@@ -224,6 +227,7 @@ struct IntersectorOctreeGPU
 			iteration++;
 		}
 
+		oroMemcpyDtoHAsync( &m_hasEmission, (oroDeviceptr)hasEmissionBuffer.data(), sizeof( uint32_t ), stream );
 		oroMemcpyDtoHAsync( &m_numberOfNodes, (oroDeviceptr)counterBuffer.data(), sizeof( uint32_t ), stream );
 		oroStreamSynchronize( stream );
 
@@ -260,6 +264,10 @@ struct IntersectorOctreeGPU
 		return rawReflectance( m_vAttributeBuffer[vIndex].emission ) * ( withScale ? m_emissionScale : 1.0f );
 	}
 #endif
+	DEVICE bool hasEmission() const
+	{
+		return m_hasEmission;
+	}
 	VoxelAttirb* m_vAttributeBuffer = 0;
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
@@ -269,6 +277,7 @@ struct IntersectorOctreeGPU
 	float m_dps = 0.0f;
 
 	float m_emissionScale = 7.5f;
+	uint32_t m_hasEmission = 0;
 };
 
 template <class T>

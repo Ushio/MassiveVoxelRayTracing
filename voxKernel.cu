@@ -165,7 +165,7 @@ extern "C" __global__ void __launch_bounds__( VOXELIZE_BLOCK_THREADS ) voxelize(
 	}
 }
 
-extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const VoxelAttirb* inputVoxelAttribs, VoxelAttirb* outputVoxelAttribs, uint32_t totalDumpedVoxels, StreamCompaction streamCompaction )
+extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const VoxelAttirb* inputVoxelAttribs, VoxelAttirb* outputVoxelAttribs, uint32_t totalDumpedVoxels, StreamCompaction streamCompaction, uint32_t *hasEmission )
 {
 	streamCompaction.filter<UNIQUE_BLOCK_SIZE /*ITEMS_PER_BLOCK*/, UNIQUE_BLOCK_THREADS /*BLOCK_DIM*/>(
 		[&]( int srcIndex )
@@ -210,6 +210,11 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 				255 };
 			outputVoxelAttribs[dstIndex].color = meanColor;
 			outputVoxelAttribs[dstIndex].emission = meanEmission;
+
+			if( 0 < meanEmission.x || 0 < meanEmission.y || 0 < meanEmission.z )
+			{
+				atomicExch( hasEmission, 1 );
+			}
 		} 
 	);
 }
@@ -683,7 +688,8 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 			T *= R;
 
 #if defined( EXTRA_IMPLICIT_SAMPLING )
-			if( depth == 0 )
+			int nSampleExtraDirect = intersector.hasEmission() ? 1 : 0;
+			for( int k = 0; depth == 0 &&k < nSampleExtraDirect; k++ )
 			{
 				float2 u01 = SAMPLE_2D();
 
@@ -697,7 +703,7 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 				float3 Le = intersector.getVoxelEmission( vIndex, true );
 				if( t != MAX_FLOAT )
 				{
-					L += T * Le * 0.5f;
+					L += T * Le / (float)( 1 + nSampleExtraDirect );
 				}
 			}
 #endif
@@ -716,7 +722,7 @@ extern "C" __global__ void __launch_bounds__( RENDER_NUMBER_OF_THREAD ) renderPT
 				float3 Le = intersector.getVoxelEmission( vIndex, true );
 
 #if defined( EXTRA_IMPLICIT_SAMPLING )
-				L += T * Le * ( depth == 0 ? 0.5f : 1.0f );
+				L += T * Le * ( depth == 0 ? 1.0f / (float)( 1 + nSampleExtraDirect ) : 1.0f );
 #else
 				L += T * Le;
 #endif

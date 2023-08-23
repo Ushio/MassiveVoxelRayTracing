@@ -251,6 +251,7 @@ int main()
 		ImGui::Text( "build(ms) = %f", buildMS );
 		
 		ImGui::Text( "render(ms) = %f", renderMS );
+		ImGui::Text( "emission %s", pt.m_intersectorOctreeGPU.hasEmission() ? "Y" : "N" );
 		ImGui::Text( "voxels   = %lld", pt.getNumberOfVoxels() );
 		ImGui::Text( "octree   = %lld byte", pt.getOctreeBytes() );
 		
