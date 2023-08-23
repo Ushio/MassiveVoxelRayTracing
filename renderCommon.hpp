@@ -312,14 +312,15 @@ struct HDRI
 
 		oroStreamSynchronize( stream );
 	}
-	void loadPrimary( float* ptr, oroStream stream )
+	void loadPrimary( float* ptr, int width, int height, oroStream stream )
 	{
 		if( m_pixelsPrimary )
 		{
 			oroFree( (oroDeviceptr)m_pixelsPrimary );
 		}
-
-		uint64_t pixelBytes = sizeof( float4 ) * m_width * m_height;
+		m_widthPrimary = width;
+		m_heightPrimary = height;
+		uint64_t pixelBytes = sizeof( float4 ) * m_widthPrimary * m_heightPrimary;
 		oroMalloc( (oroDeviceptr*)&m_pixelsPrimary, pixelBytes );
 		oroMemcpyHtoDAsync( (oroDeviceptr)m_pixelsPrimary, ptr, pixelBytes, stream );
 	}
@@ -352,10 +353,13 @@ struct HDRI
 #else
 	DEVICE float3 sampleNearest( float3 direction, bool isPrimary ) const
 	{
+		int w = isPrimary ? m_widthPrimary : m_width;
+		int h = isPrimary ? m_heightPrimary : m_height;
+
 		float2 uv = getSpherical( direction );
-		int x = (int)ss_clamp( uv.x * m_width, 0.0f, (float)( m_width - 1.0f ) );
-		int y = (int)ss_clamp( uv.y * m_height, 0.0f, (float)( m_height - 1.0f ) );
-		uint64_t index = (uint64_t)y * m_width + x;
+		int x = (int)ss_clamp( uv.x * w, 0.0f, (float)( w - 1.0f ) );
+		int y = (int)ss_clamp( uv.y * h, 0.0f, (float)( h - 1.0f ) );
+		uint64_t index = (uint64_t)y * w + x;
 		float4 c = ( isPrimary && m_pixelsPrimary ) ? m_pixelsPrimary[index] : m_pixels[index];
 		return float3 { c.x, c.y, c.z } * m_scale;
 	}
@@ -471,6 +475,8 @@ struct HDRI
 	uint32_t* m_sats[6]; // +x, -x, +y, -y, +z, -z
 	int m_width = 0;
 	int m_height = 0;
+	int m_widthPrimary = 0;
+	int m_heightPrimary = 0;
 	float m_scale = 1.75f;
 };
 

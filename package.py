@@ -23,7 +23,7 @@ binFiles = {
     "amd_comgr0505.dll",
 
     # HDRI
-    "monks_forest_2k.hdr",
+    "monks_forest_s.hdr",
     "monks_forest_2k_primary.hdr",
 }
 

@@ -121,7 +121,7 @@ int main( int argc, char* argv[] )
 	}
 
 	pt.resizeFrameBufferIfNeeded( stream, renderWidth, renderHeigt );
-	pt.loadHDRI( stream, "monks_forest_2k.hdr", "monks_forest_2k_primary.hdr" );
+	pt.loadHDRI( stream, "monks_forest_s.hdr", "monks_forest_2k_primary.hdr" );
 
 	// reading buffer
 	Concurrency::concurrent_queue<Buffer*> frameBufferPool;

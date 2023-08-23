@@ -111,7 +111,7 @@ public:
 		{
 			pr::Image2DRGBA32 hdriPrimarySrc;
 			hdriPrimarySrc.loadFromHDR( filePrimary );
-			m_hdri.loadPrimary( glm::value_ptr( *hdriPrimarySrc.data() ), stream );
+			m_hdri.loadPrimary( glm::value_ptr( *hdriPrimarySrc.data() ), hdriPrimarySrc.width(), hdriPrimarySrc.height(), stream );
 		}
 	}
 
