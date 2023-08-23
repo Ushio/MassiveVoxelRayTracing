@@ -28,8 +28,8 @@ int main( int argc, char* argv[] )
 	Stopwatch sw;
 
 	printf( "Expected arguments:\n" );
-	printf( "  [instance 0] RTCamp --frame-range 0 163\n" );
-	printf( "  [instance 1] RTCamp --frame-range 163 240\n" );
+	printf( "  [instance 0] RTCamp --frame-range 0 171\n" );
+	printf( "  [instance 1] RTCamp --frame-range 171 240\n" );
 	
 	SetDataDir( ExecutableDir() );
 
