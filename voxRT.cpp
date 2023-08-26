@@ -73,11 +73,19 @@ int main()
 
 	SetDataDir( ExecutableDir() );
 
-	const char* input = "bunny.abc";
+	const char* input = "xyzrgb_dragon.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
 	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
+	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	{ 
+		if( cameraEntity->visible() )
+		{
+			camera = cameraFromEntity( cameraEntity.get() );
+		} 
+	} );
+
 
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;
@@ -97,7 +105,7 @@ int main()
 	}
 
 	bool sixSeparating = true;
-	int gridRes = 512;
+	int gridRes = 8192;
 	bool drawModel = false;
 	bool drawWire = false;
 

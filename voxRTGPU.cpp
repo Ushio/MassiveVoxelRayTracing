@@ -78,12 +78,18 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	const char* input = "bunny.abc";
+	const char* input = "xyzrgb_dragon.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
 	std::shared_ptr<FScene> scene = ar.readFlat( 0, errorMsg );
-
+	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	{ 
+		if( cameraEntity->visible() )
+		{
+			camera = cameraFromEntity( cameraEntity.get() );
+		} 
+	} );
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;
 	//std::shared_ptr<FScene> scene = ReadWavefrontObj( GetDataPath( input ), errorMsg );
@@ -96,16 +102,16 @@ int main()
 	// GPU buffer
 	Buffer counterBuffer( sizeof( uint32_t ) );
 	IntersectorOctreeGPU intersectorOctreeGPU;
+	DynamicAllocatorGPU<StackElement> stackAllocator;
+	stackAllocator.setup( 16 * 256 /* numberOfBlock */, RENDER_NUMBER_OF_THREAD /* blockSize */, isNvidia ? 32 : 37 /* nElementPerThread */, stream );
 
-	std::unique_ptr<Buffer> stackBuffer;
 	std::unique_ptr<Buffer> frameBuffer;
 
 	bool sixSeparating = true;
-	int gridRes = 512;
+	int gridRes = 8192;
 	bool drawModel = true;
 	bool showVertexColor = true;
 	bool buildAccelerationStructure = true;
-
 
 	pr::ITexture* bgTexture = 0;
 
@@ -175,20 +181,10 @@ int main()
 
 		double renderMS = 0;
 		{
-			OroStopwatch oroStream( stream );
-			oroStream.start();
-
-			int nBlock = 16 * 256;
-			int nThreads = 256;
-
 			auto frameBufferBytes = image.width() * image.height() * sizeof( uchar4 );
 			if( !frameBuffer || frameBuffer->bytes() != frameBufferBytes )
 			{
 				frameBuffer = std::unique_ptr<Buffer>( new Buffer( frameBufferBytes ) );
-			}
-			if( !stackBuffer )
-			{
-				stackBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( StackElement ) * 32 * nThreads * nBlock ) );
 			}
 			oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
 
@@ -196,12 +192,15 @@ int main()
 			args.add( frameBuffer->data() );
 			args.add<int2>( { image.width(), image.height() } );
 			args.add( counterBuffer.data() );
-			args.add( stackBuffer->data() );
+			args.add( stackAllocator );
 			args.add( pinhole );
 			args.add( intersectorOctreeGPU );
 			args.add( showVertexColor ? 1 : 0 );
-			
-			voxKernel.launch( "render", args, nBlock, 1, 1, nThreads, 1, 1, stream );
+
+			OroStopwatch oroStream( stream );
+			oroStream.start();
+
+			voxKernel.launch( "render", args, div_round_up( image.width() * image.height(), RENDER_NUMBER_OF_THREAD ), 1, 1, RENDER_NUMBER_OF_THREAD, 1, 1, stream );
 			
 			oroStream.stop();
 			renderMS = oroStream.getMs();

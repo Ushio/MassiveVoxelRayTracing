@@ -397,29 +397,18 @@ extern "C" __global__ void embedMasks( OctreeNode *nodes, uint32_t numberOfNodes
 
 extern "C" __global__ void render(
 	uchar4* frameBuffer, int2 resolution,
-	uint32_t* taskCounter, StackElement* stackBuffer,
+	uint32_t* taskCounter, 
+	DynamicAllocatorGPU<StackElement> stackAllocator,
 	CameraPinhole pinhole,
 	IntersectorOctreeGPU intersector,
 	int showVertexColor )
 {
-	__shared__ uint32_t taskIdx;
+	uint32_t stackHandle;
+	StackElement* stack = stackAllocator.acquire( &stackHandle );
 
-	StackElement* stack = stackBuffer + blockIdx.x * 32 * blockDim.x + threadIdx.x * 32;
-
-	for( ;; )
+	uint32_t pixelIdx = blockIdx.x * RENDER_NUMBER_OF_THREAD + threadIdx.x;
+	if( pixelIdx < resolution.x * resolution.y )
 	{
-		if( threadIdx.x == 0 )
-		{
-			taskIdx = atomicInc( taskCounter, 0xFFFFFFFF );
-		}
-		__syncthreads();
-
-		uint32_t pixelIdx = taskIdx * blockDim.x + threadIdx.x;
-		if( resolution.x * resolution.y <= pixelIdx )
-		{
-			break;
-		}
-
 		uint32_t x = pixelIdx % resolution.x;
 		uint32_t y = pixelIdx / resolution.x;
 
@@ -450,6 +439,8 @@ extern "C" __global__ void render(
 		}
 		frameBuffer[y * resolution.x + x] = colorOut;
 	}
+
+	stackAllocator.release( stackHandle );
 }
 
 extern "C" __global__ void HDRIstoreImportance( const float4* pixels, int2 resolution, double* sat, int cosWeighted, float3 axis )
