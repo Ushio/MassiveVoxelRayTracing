@@ -149,6 +149,169 @@ int main( int argc, char* argv[] )
 		
 		swUpdate.stop();
 
+
+		// CPU
+		#if 1
+		{
+			IntersectorOctreeGPU intersector = pt.m_intersectorOctreeGPU.copyToHost();
+			HDRI hdri = pt.m_hdri.copyToHost();
+			PMJSampler pmj;
+			pmj.setup( false, 0 );
+			glm::mat4 viewMat, projMat;
+			GetCameraMatrix( camera, &projMat, &viewMat, renderWidth, renderHeigt );
+
+			CameraPinhole pinhole;
+			pinhole.initFromPerspective( viewMat, projMat, focus, lensR );
+
+			int nSPP = 16 * 8;
+			Image2DRGBA8 image;
+			image.allocate( renderWidth, renderHeigt );
+			Stopwatch cpuRenderSw;
+
+			//for( int y = 0; y < renderHeigt; y++ )
+			ParallelFor( renderHeigt, [&]( int y ) {
+			for (int x = 0; x < renderWidth; x++)
+			{
+				float3 contribution = {};
+				for( uint32_t spp = 0; spp < nSPP; spp++ )
+				{
+					uint32_t pixelIdx = y * renderWidth + x;
+					int2 resolution = { renderWidth, renderHeigt };
+					MurmurHash32 hash( 0 );
+					hash.combine( pixelIdx );
+					StackElement stack[32];
+
+	#if defined( USE_PMJ )
+					int dim = 0;
+					uint32_t stream = hash.getHash();
+	#define SAMPLE_2D() pmj.sample2d( spp, dim++, stream )
+	#else
+					hash.combine( spp );
+					PCG32 rng;
+					rng.setup( 0, hash.getHash() );
+	#define SAMPLE_2D() float2{ uniformf( rng.nextU32() ), uniformf( rng.nextU32() ) }
+	#endif
+
+					float2 cam_u01 = SAMPLE_2D();
+					float3 ro, rd;
+					// pinhole.shoot( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y );
+
+					float2 lens_u01 = SAMPLE_2D();
+					pinhole.shootThinLens( &ro, &rd, x, y, cam_u01.x, cam_u01.y, resolution.x, resolution.y, lens_u01.x, lens_u01.y );
+
+					float3 T = { 1.0f, 1.0f, 1.0f };
+					float3 L = {};
+
+					float t = MAX_FLOAT;
+					int nMajor;
+					uint32_t vIndex = 0;
+					intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex, false /* isShadowRay */ );
+
+					// Primary emissions:
+					if( t == MAX_FLOAT )
+					{
+						// float I = ss_max( normalize( rd ).y, 0.0f ) * 3.0f;
+						// float3 env = { I, I, I };
+						float3 env = hdri.sampleNearest( rd, true );
+						L += T * env;
+					}
+					else
+					{
+						float3 Le = intersector.getVoxelEmission( vIndex, false );
+						L += T * Le;
+					}
+
+					for( int depth = 0; depth < 8 && t != MAX_FLOAT; depth++ )
+					{
+						float3 R = rawReflectance( intersector.getVoxelColor( vIndex ) );
+						float3 hitN = getHitN( nMajor, rd );
+						float3 hitP = ro + rd * t;
+
+						if( hdri.isEnabled() )
+						{ // Explicit
+							float2 u01 = SAMPLE_2D();
+							float2 u23 = SAMPLE_2D();
+
+							float3 dir;
+							float3 emissive;
+							float p;
+							hdri.importanceSample( &dir, &emissive, &p, hitN, true, u01.x, u01.y, u23.x, u23.y );
+
+							// no self intersection
+							float t = MAX_FLOAT;
+							int nMajor;
+							uint32_t vIndex = 0;
+							intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex, true /* isShadowRay */ );
+							if( t == MAX_FLOAT )
+							{
+								L += T * ( R / PI ) * ss_max( dot( hitN, dir ), 0.0f ) * emissive / p;
+							}
+						}
+
+						T *= R;
+
+	#if defined( EXTRA_IMPLICIT_SAMPLING )
+						int nSampleExtraDirect = intersector.hasEmission() ? 1 : 0;
+						for( int k = 0; depth == 0 && k < nSampleExtraDirect; k++ )
+						{
+							float2 u01 = SAMPLE_2D();
+
+							float3 dir = sampleLambertian( u01.x, u01.y, hitN );
+
+							// no self intersection
+							float t = MAX_FLOAT;
+							int nMajor;
+							uint32_t vIndex = 0;
+							intersector.intersect( stack, hitP, dir, &t, &nMajor, &vIndex, false /* isShadowRay */ );
+							float3 Le = intersector.getVoxelEmission( vIndex, true );
+							if( t != MAX_FLOAT )
+							{
+								L += T * Le / (float)( 1 + nSampleExtraDirect );
+							}
+						}
+	#endif
+
+						float2 u01 = SAMPLE_2D();
+						float3 dir = sampleLambertian( u01.x, u01.y, hitN );
+
+						ro = hitP; // no self intersection
+						rd = dir;
+
+						t = MAX_FLOAT;
+						intersector.intersect( stack, ro, rd, &t, &nMajor, &vIndex, false /* isShadowRay */ );
+
+						if( t != MAX_FLOAT )
+						{
+							float3 Le = intersector.getVoxelEmission( vIndex, true );
+
+	#if defined( EXTRA_IMPLICIT_SAMPLING )
+							L += T * Le * ( depth == 0 ? 1.0f / (float)( 1 + nSampleExtraDirect ) : 1.0f );
+	#else
+							L += T * Le;
+	#endif
+						}
+					}
+
+					contribution += L;
+				}
+				float w = nSPP;
+				int r = (int)( 255 * INTRIN_POW( contribution.x / w, 1.0f / 2.2f ) + 0.5f );
+				int g = (int)( 255 * INTRIN_POW( contribution.y / w, 1.0f / 2.2f ) + 0.5f );
+				int b = (int)( 255 * INTRIN_POW( contribution.z / w, 1.0f / 2.2f ) + 0.5f );
+				glm::u8vec4 colorOut = {
+					(uint8_t)ss_min( r, 255 ),
+					(uint8_t)ss_min( g, 255 ),
+					(uint8_t)ss_min( b, 255 ),
+					255 };
+				image( x, y ) = colorOut;
+			}
+			} );
+
+			printf( "CPU %fs\n", cpuRenderSw.elapsed() );
+			image.saveAsPng( "test.png" );
+		}
+		#endif
+
 		OroStopwatch swRender( stream );
 		swRender.start();
 

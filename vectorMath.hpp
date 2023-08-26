@@ -177,7 +177,7 @@ DEVICE inline float3 operator/( float3 a, float3 b )
 {
 	return { a.x / b.x, a.y / b.y, a.z / b.z };
 }
-#if defined( __CUDACC__ )
+#if !defined( __HIPCC__ )
 DEVICE inline float3& operator+=( float3& a, float3 b )
 {
 	a = a + b;

@@ -350,7 +350,7 @@ struct HDRI
 			m_pixelsPrimary = 0;
 		}
 	}
-#else
+#endif
 	DEVICE float3 sampleNearest( float3 direction, bool isPrimary ) const
 	{
 		int w = isPrimary ? m_widthPrimary : m_width;
@@ -363,7 +363,7 @@ struct HDRI
 		float4 c = ( isPrimary && m_pixelsPrimary ) ? m_pixelsPrimary[index] : m_pixels[index];
 		return float3 { c.x, c.y, c.z } * m_scale;
 	}
-#endif
+
 	DEVICE void importanceSample( float3* direction, float3* L, float* srPDF, float3 N, bool axisAligned, float u0, float u1, float u2, float u3 ) const
 	{
 		uint32_t* sat = m_sat;
@@ -468,6 +468,27 @@ struct HDRI
 	{
 		return 0.0f < m_scale;
 	}
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	HDRI copyToHost()
+	{
+		HDRI r = *this;
+		r.m_pixels = (float4*)malloc( sizeof( float4 ) * m_width * m_height );
+		r.m_pixelsPrimary = (float4*)malloc( sizeof( float4 ) * m_widthPrimary * m_heightPrimary );
+		r.m_sat = (uint32_t*)malloc( sizeof( uint32_t ) * m_width * m_height );
+		for( int i = 0; i < 6; i++ )
+		{
+			r.m_sats[i] = (uint32_t*)malloc( sizeof( uint32_t ) * m_width * m_height );
+		}
+		oroMemcpyDtoH( r.m_pixels, (oroDeviceptr)m_pixels, sizeof( float4 ) * m_width * m_height );
+		oroMemcpyDtoH( r.m_pixelsPrimary, (oroDeviceptr)m_pixelsPrimary, sizeof( float4 ) * m_widthPrimary * m_heightPrimary );
+		oroMemcpyDtoH( r.m_sat, (oroDeviceptr)m_sat, sizeof( uint32_t ) * m_width * m_height );
+		for( int i = 0; i < 6; i++ )
+		{
+			oroMemcpyDtoH( r.m_sats[i], (oroDeviceptr)m_sats[i], sizeof( uint32_t ) * m_width * m_height );
+		}
+		return r;
+	}
+#endif
 
 	float4* m_pixels = 0;
 	float4* m_pixelsPrimary = 0;

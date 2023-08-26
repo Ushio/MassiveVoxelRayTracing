@@ -245,7 +245,7 @@ struct IntersectorOctreeGPU
 #endif
 		// printf( "%d %d\n", m_numberOfNodes, nTotalInternalNodes );
 	}
-#else
+#endif
 	DEVICE void intersect(
 		StackElement* stack,
 		float3 ro,
@@ -263,11 +263,23 @@ struct IntersectorOctreeGPU
 	{
 		return rawReflectance( m_vAttributeBuffer[vIndex].emission ) * ( withScale ? m_emissionScale : 1.0f );
 	}
-#endif
+
 	DEVICE bool hasEmission() const
 	{
 		return m_hasEmission;
 	}
+#if !defined( __CUDACC__ ) && !defined( __HIPCC__ )
+	IntersectorOctreeGPU copyToHost()
+	{
+		IntersectorOctreeGPU r = *this;
+		r.m_vAttributeBuffer = (VoxelAttirb*)malloc( sizeof( VoxelAttirb ) * m_numberOfVoxels );
+		r.m_nodeBuffer = (OctreeNode*)malloc( sizeof( OctreeNode ) * m_numberOfNodes );
+		oroMemcpyDtoH( r.m_vAttributeBuffer, (oroDeviceptr)m_vAttributeBuffer, sizeof( VoxelAttirb ) * m_numberOfVoxels );
+		oroMemcpyDtoH( r.m_nodeBuffer, (oroDeviceptr)m_nodeBuffer, sizeof( OctreeNode ) * m_numberOfNodes );
+		return r;
+	}
+#endif
+
 	VoxelAttirb* m_vAttributeBuffer = 0;
 	OctreeNode* m_nodeBuffer = 0;
 	uint32_t m_numberOfNodes = 0;
