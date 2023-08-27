@@ -18,7 +18,7 @@ ssh.connect(inst_addr1, username='administrator', pkey=key)
 
 # ノンブロッキング、つまりリモートのコマンドの終了は待たない。
 remote_commands = R"""
-cd $home\usecase2_submission
+cd $home\ushio_gpu
 .\RTCamp --frame-range 171 240
 """
 (_, remote_stdout, remote_stderr) = ssh.exec_command(remote_commands)
