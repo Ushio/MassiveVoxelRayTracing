@@ -27,7 +27,7 @@ int main()
 		printf( "failed to init..\n" );
 		return 0;
 	}
-	int deviceIdx = 2;
+	int deviceIdx = 0;
 
 	oroError err;
 	err = oroInit( 0 );
