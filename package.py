@@ -15,7 +15,7 @@ for file in os.listdir(srcDir):
 
 binFiles = {
     "RTCamp.exe",
-    "output.abc",
+    "rtcamp9.abc",
 
     # AMD Option
     "hiprtc0505.dll",
