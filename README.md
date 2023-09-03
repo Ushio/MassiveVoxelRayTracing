@@ -8,9 +8,7 @@ The short introduction: [renderer_introduction](usecase2_submission/renderer_int
 The short introduction audio: [ずんだもん.wav](usecase2_submission/ずんだもん.wav)
 
 ## Video
-<video width="1440" height="900" controls>
-  <source src="submittedClip.mp4" type="video/mp4">
-</video>
+[A submitted video](submittedClip.mp4)
 
 ## Environment
 AMD: Navi 10 or later ( vega10 or vega20 could work but I didn't really test it )
