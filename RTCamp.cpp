@@ -74,8 +74,7 @@ int main( int argc, char* argv[] )
 	ThreadPool threadPool( 1 );
 	TaskGroup taskGroup;
 
-	// const char* input = "rtcamp.abc";
-	const char* input = "output.abc";
+	const char* input = "rtcamp9.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	if( ar.open( GetDataPath( input ), errorMsg ) == AbcArchive::Result::Failure )

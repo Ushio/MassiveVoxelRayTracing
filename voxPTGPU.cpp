@@ -18,7 +18,7 @@ int main()
 		printf( "failed to init..\n" );
 		return 0;
 	}
-	int deviceIdx = 2;
+	int deviceIdx = 0;
 
 	oroError err;
 	err = oroInit( 0 );
@@ -45,29 +45,33 @@ int main()
 	Initialize( config );
 
 	Camera3D camera;
-	camera.origin = { 4, 4, 4 };
-	camera.lookat = { 0, 0, 0 };
+	camera.origin = { 10, 2, 0 };
+	camera.lookat = { 0, -2, 0 };
 	camera.zUp = false;
 
-	int frame = 0;
+	int frame = 239;
 	float focus = 7.0f;
 	float lensR = 0.0f;
 
 	//const char* input = "bunnyColor.abc";
-	const char* input = "output.abc";
+	const char* input = "rtcamp9.abc";
 	AbcArchive ar;
 	std::string errorMsg;
 	ar.open( GetDataPath( input ), errorMsg );
 
-	std::shared_ptr<FScene> scene = ar.readFlat( 60, errorMsg );
-	//scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
-	//{ 
-	//	if( cameraEntity->visible() )
-	//	{
-	//		camera = cameraFromEntity( cameraEntity.get() );
-	//		focus = cameraEntity->focusDistance();
-	//	} 
-	//} );
+	std::shared_ptr<FScene> scene = ar.readFlat( 239, errorMsg );
+
+	// for final camera
+	#if 0
+	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
+	{ 
+		if( cameraEntity->visible() )
+		{
+			camera = cameraFromEntity( cameraEntity.get() );
+			focus = cameraEntity->focusDistance();
+		} 
+	} );
+	#endif
 
 	//const char* input = "bunny.obj";
 	//std::string errorMsg;
