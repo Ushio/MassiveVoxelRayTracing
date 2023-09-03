@@ -42,3 +42,20 @@ Open MassiveVoxelRayTracing.sln and build.
 ## seminor 
 TBD
 
+## Awesome References
+### Voxelization
+- Michael Schwarz, Hans-Peter Seidel, “Fast Parallel Surface and Solid Voxelization on GPUs”
+- Jacopo Pantaleoni, “VoxelPipe: A Programmable Pipeline for 3D Voxelization”
+
+### Octree
+- J. Baert, A. Lagae and Ph. Dutré, “Out-of-Core Construction of Sparse Voxel Octrees”
+- Martin Pätzold and Andreas Kolb, “Grid-Free Out-Of-Core Voxelization to Sparse Voxel Octrees on GPU”
+
+### Ray Traversal
+- John Amanatides and Andrew Woo, “A Fast Voxel Traversal Algorithm”
+- Mark Agate, Richard L. Grimsdale and Paul F. Lister, “The HERO Algorithm for Ray-Tracing Octrees”
+- J. Revelles, C. Urena, M. Lastra, “An Efficient Parametric Algorithm for Octree Traversal”
+- A Recursive Approach for Octree Traversal, https://chiranjivi.tripod.com/octrav.html
+
+### color handling
+- Dan Dolonius, Erik Sintorny, Viktor Kampezand Ulf Assarsson, “Compressing Color Data for Voxelized Surface Geometry”
