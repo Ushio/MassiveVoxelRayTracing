@@ -53,16 +53,19 @@ int main()
 	float focus = 7.0f;
 	float lensR = 0.0f;
 
-	//const char* input = "bunnyColor.abc";
 	const char* input = "rtcamp9.abc";
 	AbcArchive ar;
 	std::string errorMsg;
-	ar.open( GetDataPath( input ), errorMsg );
+	if( ar.open( GetDataPath( input ), errorMsg ) == AbcArchive::Result::Failure )
+	{
+		// fallback
+		ar.open( GetDataPath( "xyzrgb_dragon.abc" ), errorMsg );
+	}
 
 	std::shared_ptr<FScene> scene = ar.readFlat( 239, errorMsg );
 
 	// for final camera
-	#if 0
+	#if 1
 	scene->visitCamera( [&]( std::shared_ptr<const pr::FCameraEntity> cameraEntity )
 	{ 
 		if( cameraEntity->visible() )

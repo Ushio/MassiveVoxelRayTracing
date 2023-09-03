@@ -1,4 +1,5 @@
 build
 bin/*
 !bin/*.hdr
+!bin/*.abc
 RTCampPackage/*

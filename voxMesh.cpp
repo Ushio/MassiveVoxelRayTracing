@@ -233,9 +233,7 @@ int main()
 	camera.lookat = { 0, 0, 0 };
 	camera.zUp = false;
 
-	// const char* input = "bunny.obj";
-	const char* input = "bunny.abc";
-	// const char* input = "color.abc";
+	const char* input = "xyzrgb_dragon.abc";
 	SetDataDir( ExecutableDir() );
 
 	std::string errorMsg;

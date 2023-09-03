@@ -105,7 +105,7 @@ int main()
 	}
 
 	bool sixSeparating = true;
-	int gridRes = 8192;
+	int gridRes = 512;
 	bool drawModel = false;
 	bool drawWire = false;
 
