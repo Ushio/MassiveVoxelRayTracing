@@ -26,6 +26,19 @@ premake5 vs2022
 
 Open MassiveVoxelRayTracing.sln and build.
 
+## Projects
+| Project | Description |
+|---------|---------|
+| prlib   | [visualization library etc](https://github.com/Ushio/prlib) |
+| RTCamp   | Final submission |
+| unittest | Some tiny unit tests |
+| voxMesh | Voxelization test on the CPU. You can save voxelized mesh as .ply |
+| **voxPTGPU** | Path tracer. The main dev project. |
+| voxRT | Ray cast test on the CPU |
+| voxRTGPU | Ray cast test on the GPU |
+| voxTriangle | A triangle voxelization test |
+
+
 ## seminor 
 TBD
 
