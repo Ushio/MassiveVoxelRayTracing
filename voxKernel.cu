@@ -165,9 +165,17 @@ extern "C" __global__ void __launch_bounds__( VOXELIZE_BLOCK_THREADS ) voxelize(
 	}
 }
 
-extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* outputMortonVoxels, const VoxelAttirb* inputVoxelAttribs, VoxelAttirb* outputVoxelAttribs, uint32_t totalDumpedVoxels, StreamCompaction streamCompaction, uint32_t *hasEmission )
+
+// In place compaction
+extern "C" __global__ void unique( uint64_t* inputMortonVoxels, VoxelAttirb* inputVoxelAttribs, uint32_t totalDumpedVoxels, StreamCompaction streamCompaction, uint32_t *hasEmission )
 {
-	streamCompaction.filter<UNIQUE_BLOCK_SIZE /*ITEMS_PER_BLOCK*/, UNIQUE_BLOCK_THREADS /*BLOCK_DIM*/>(
+	int nOutputsInTheBlock = 0;
+	int globalPrefixInTheBlock = 0;
+	
+	__shared__ VoxelAttirb localAttributeOutputs[UNIQUE_BATCH_SIZE];
+	__shared__ uint64_t localMortonOutputs[UNIQUE_BATCH_SIZE];
+
+	streamCompaction.filter<UNIQUE_BATCH_SIZE /*ITEMS_PER_BLOCK*/, UNIQUE_BLOCK_THREADS /*BLOCK_DIM*/>(
 		[&]( int srcIndex )
 		{
 			if( srcIndex < totalDumpedVoxels )
@@ -176,10 +184,12 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 			}
 			return false;
 		},
-		[&]( int srcIndex, int dstIndex )
+		[&]( int srcIndex, int dstIndex, int globalPrefix )
 		{
+			int localIndex = dstIndex - globalPrefix;
+
 			uint64_t morton = inputMortonVoxels[srcIndex];
-			outputMortonVoxels[dstIndex] = morton;
+			localMortonOutputs[localIndex] = morton;
 
 			int R = 0;
 			int G = 0;
@@ -208,15 +218,28 @@ extern "C" __global__ void unique( const uint64_t* inputMortonVoxels, uint64_t* 
 				(uint8_t)( Ge / n ),
 				(uint8_t)( Be / n ),
 				255 };
-			outputVoxelAttribs[dstIndex].color = meanColor;
-			outputVoxelAttribs[dstIndex].emission = meanEmission;
+			
+			localAttributeOutputs[localIndex].color = meanColor;
+			localAttributeOutputs[localIndex].emission = meanEmission;
 
 			if( 0 < meanEmission.x || 0 < meanEmission.y || 0 < meanEmission.z )
 			{
 				atomicExch( hasEmission, 1 );
 			}
 		} 
-	);
+	, &nOutputsInTheBlock, &globalPrefixInTheBlock );
+
+	streamCompaction.granteeBlockExecutionOrder();
+
+	for( int i = 0; i < nOutputsInTheBlock; i += UNIQUE_BLOCK_THREADS )
+	{
+		int localIndex = i + threadIdx.x;
+		if( localIndex < nOutputsInTheBlock )
+		{
+			inputMortonVoxels[globalPrefixInTheBlock + localIndex] = localMortonOutputs[localIndex];
+			inputVoxelAttribs[globalPrefixInTheBlock + localIndex] = localAttributeOutputs[localIndex];
+		}
+	}
 }
 
 extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, uint32_t numberOfVoxels, OctreeTask* outputOctreeTasks, uint32_t* taskCounters, uint32_t gridRes )
@@ -251,6 +274,8 @@ extern "C" __global__ void bottomUpOctreeBuild(
 	uint32_t* lpBuffer, uint32_t lpSize,
 	StreamCompaction streamCompaction )
 {
+	int nOutputsInTheBlock = 0;
+	int globalPrefixInTheBlock = 0;
 	streamCompaction.filter<BOTTOM_UP_BLOCK_SIZE /*ITEMS_PER_BLOCK*/, BOTTOM_UP_BLOCK_THREADS /*BLOCK_DIM*/>(
 		[&]( int srcIndex )
 		{
@@ -260,7 +285,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			}
 			return false;
 		},
-		[&]( int srcIndex, int dstIndex )
+		[&]( int srcIndex, int dstIndex, int globalPrefix )
 		{
 			uint8_t mask = 0;
 			
@@ -381,7 +406,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			outputOctreeTasks[dstIndex].numberOfVoxels = numberOfVoxels;
 #endif
 		} 
-	);
+	, &nOutputsInTheBlock, &globalPrefixInTheBlock );
 }
 
 extern "C" __global__ void embedMasks( OctreeNode *nodes, uint32_t numberOfNodes )

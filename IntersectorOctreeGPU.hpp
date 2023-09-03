@@ -10,7 +10,7 @@
 #include "Orochi/OrochiUtils.h"
 #endif
 
-#define UNIQUE_BLOCK_SIZE 4096
+#define UNIQUE_BATCH_SIZE 2048
 #define UNIQUE_BLOCK_THREADS 1024
 
 #define BOTTOM_UP_BLOCK_SIZE 4096
@@ -131,27 +131,16 @@ struct IntersectorOctreeGPU
 		}
 
 		{
-			auto outputMortonVoxelsBuffer = std::unique_ptr<Buffer>( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-			VoxelAttirb* outputVoxelAttribsBuffer = 0;
-			oroMalloc( (oroDeviceptr*)&outputVoxelAttribsBuffer, sizeof( VoxelAttirb ) * totalDumpedVoxels );
-
 			streamCompaction.clear( stream );
 
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
-			args.add( outputMortonVoxelsBuffer->data() );
 			args.add( m_vAttributeBuffer );
-			args.add( outputVoxelAttribsBuffer );
 			args.add( totalDumpedVoxels );
 			args.add( streamCompaction );
 			args.add( hasEmissionBuffer.data() );
-			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BLOCK_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
+			voxKernel->launch( "unique", args, div_round_up64( totalDumpedVoxels, UNIQUE_BATCH_SIZE ), 1, 1, UNIQUE_BLOCK_THREADS, 1, 1, stream );
 			m_numberOfVoxels = streamCompaction.readCounter( stream );
-
-			std::swap( mortonVoxelsBuffer, outputMortonVoxelsBuffer );
-
-			oroFree( (oroDeviceptr)m_vAttributeBuffer );
-			m_vAttributeBuffer = outputVoxelAttribsBuffer;
 		}
 
 		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * m_numberOfVoxels ) );
