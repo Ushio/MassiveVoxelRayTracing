@@ -9,7 +9,7 @@ The short introduction audio: [ずんだもん.wav](usecase2_submission/ずん�
 
 ## Environment
 AMD: Navi 10 or later ( vega10 or vega20 could work but I didn't really test it )
-NVIDIA: compute capability 7.0 or later ( https://en.wikipedia.org/wiki/CUDA )
+NVIDIA: compute capability 7.0 or later ( https://en.wikipedia.org/wiki/CUDA ) and need cuda SDK( 12.0 is used for the submission ) for nvrtc API
 
 ## Assets
 The final scene ( rtcamp9.abc ) that is used for the submission. It also contains a zbrush project, obj geometry files, houdini project file to generate "rtcamp9.abc".
