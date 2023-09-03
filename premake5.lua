@@ -3,7 +3,7 @@ include "libs/PrLib"
 workspace "Voxelization"
     location "build"
     configurations { "Debug", "Release" }
-    startproject "main"
+    startproject "voxPTGPU"
 
 architecture "x86_64"
 
