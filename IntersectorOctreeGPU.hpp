@@ -175,6 +175,9 @@ struct IntersectorOctreeGPU
 		oroMemcpyDtoHAsync( taskCounters.data(), (oroDeviceptr)taskCountersBuffer.data(), sizeof( uint32_t ) * nIteration, stream );
 		oroStreamSynchronize( stream );
 
+		// No need this buffer.
+		mortonVoxelsBuffer = std::unique_ptr<Buffer>(); 
+
 		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
 
 		int nTotalInternalNodes = 0;
@@ -187,7 +190,11 @@ struct IntersectorOctreeGPU
 #endif
 		}
 
-		int lpSize = taskCounters[0];
+#if defined( ENABLE_GPU_DAG )
+		int lpSize = ss_max( taskCounters[1], 256 );
+#else
+		int lpSize = 1;
+#endif
 		std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
 
 		if( m_nodeBuffer )
