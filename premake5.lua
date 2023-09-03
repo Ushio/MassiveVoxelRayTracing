@@ -1,6 +1,6 @@
 include "libs/PrLib"
 
-workspace "Voxelization"
+workspace "MassiveVoxelRayTracing"
     location "build"
     configurations { "Debug", "Release" }
     startproject "voxPTGPU"

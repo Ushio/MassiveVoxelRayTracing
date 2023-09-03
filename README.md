@@ -16,6 +16,16 @@ The final scene ( rtcamp9.abc ) that is used for the submission. It also contain
 
 [rtcamp9Assets.zip](https://ushiobucket1.s3.ap-northeast-1.amazonaws.com/rtcamp9/rtcamp9Assets.zip)
 
+
+## Build
+
+```
+git submodule update --init
+premake5 vs2022
+```
+
+Open MassiveVoxelRayTracing.sln and build.
+
 ## seminor 
 TBD
 
