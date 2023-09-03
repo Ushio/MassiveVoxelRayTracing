@@ -7,6 +7,11 @@ The short introduction: [renderer_introduction](usecase2_submission/renderer_int
 
 The short introduction audio: [ずんだもん.wav](usecase2_submission/ずんだもん.wav)
 
+## Video
+<video width="1440" height="900" controls>
+  <source src="submittedClip.mp4" type="video/mp4">
+</video>
+
 ## Environment
 AMD: Navi 10 or later ( vega10 or vega20 could work but I didn't really test it )
 NVIDIA: compute capability 7.0 or later ( https://en.wikipedia.org/wiki/CUDA ) and need cuda SDK( 12.0 is used for the submission ) for nvrtc API
