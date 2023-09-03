@@ -3,7 +3,7 @@ Everything is Voxel. A renderer for the Ray Tracing Camp 9 ( https://sites.googl
 
 ![representitive](representitive.png)
 
-The short introduction: ---
+The short introduction: [renderer_introduction](usecase2_submission/renderer_introduction.pdf)
 
 ## Environment
 AMD: Navi 10 or later ( vega10 or vega20 could work but I didn't really test it )
