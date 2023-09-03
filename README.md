@@ -12,7 +12,9 @@ AMD: Navi 10 or later ( vega10 or vega20 could work but I didn't really test it 
 NVIDIA: compute capability 7.0 or later ( https://en.wikipedia.org/wiki/CUDA )
 
 ## Assets
-TBD
+The final scene ( rtcamp9.abc ) that is used for the submission. It also contains a zbrush project, obj geometry files, houdini project file to generate "rtcamp9.abc".
+
+[rtcamp9Assets.zip](https://ushiobucket1.s3.ap-northeast-1.amazonaws.com/rtcamp9/rtcamp9Assets.zip)
 
 ## seminor 
 TBD
