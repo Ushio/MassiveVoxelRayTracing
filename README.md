@@ -57,5 +57,5 @@ TBD
 - J. Revelles, C. Urena, M. Lastra, “An Efficient Parametric Algorithm for Octree Traversal”
 - A Recursive Approach for Octree Traversal, https://chiranjivi.tripod.com/octrav.html
 
-### color handling
+### Color Handling
 - Dan Dolonius, Erik Sintorny, Viktor Kampezand Ulf Assarsson, “Compressing Color Data for Voxelized Surface Geometry”
