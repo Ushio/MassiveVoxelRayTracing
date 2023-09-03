@@ -30,11 +30,6 @@ struct IntersectorOctreeGPU
 			oroFree( (oroDeviceptr)m_vAttributeBuffer );
 			m_vAttributeBuffer = 0;
 		}
-		//if (m_emissiveSurfaces)
-		//{
-		//	oroFree( (oroDeviceptr)m_emissiveSurfaces );
-		//	m_emissiveSurfaces = 0;
-		//}
 		if( m_nodeBuffer )
 		{
 			oroFree( (oroDeviceptr)m_nodeBuffer );
@@ -54,6 +49,8 @@ struct IntersectorOctreeGPU
 		{
 			abort();
 		}
+
+		cleanUp();
 
 		thrs::RadixSort::Config rConfig;
 		rConfig.keyType = thrs::KeyType::U64;
@@ -97,10 +94,6 @@ struct IntersectorOctreeGPU
 		oroStreamSynchronize( stream );
 
 		std::unique_ptr<Buffer> mortonVoxelsBuffer( new Buffer( sizeof( uint64_t ) * totalDumpedVoxels ) );
-		if( m_vAttributeBuffer )
-		{
-			oroFree( (oroDeviceptr)m_vAttributeBuffer );
-		}
 		oroMalloc( (oroDeviceptr*)&m_vAttributeBuffer, sizeof( VoxelAttirb ) * totalDumpedVoxels );
 
 		oroMemsetD32Async( (oroDeviceptr)counterBuffer.data(), 0, 1, stream );
@@ -169,11 +162,20 @@ struct IntersectorOctreeGPU
 
 		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
 
+		int nMaxDAGNodeCombination = 256;
 		int nTotalInternalNodes = 0;
 		for( int i = 0; i < taskCounters.size(); i++ )
 		{
 #if defined( ENABLE_GPU_DAG )
-			nTotalInternalNodes += i == 0 ? 256 /* DAG */ : taskCounters[i];
+			nTotalInternalNodes += ss_min( nMaxDAGNodeCombination, taskCounters[i] );
+			if( i < 3 )
+			{
+				nMaxDAGNodeCombination *= 257; // 256 or null
+			}
+			else
+			{
+				nMaxDAGNodeCombination = std::numeric_limits<int>::max();
+			}
 #else
 			nTotalInternalNodes += taskCounters[i];
 #endif
@@ -185,11 +187,6 @@ struct IntersectorOctreeGPU
 		int lpSize = 1;
 #endif
 		std::unique_ptr<Buffer> lpBuffer( new Buffer( sizeof( uint32_t ) * lpSize ) );
-
-		if( m_nodeBuffer )
-		{
-			oroFree( (oroDeviceptr)m_nodeBuffer );
-		}
 		oroMalloc( (oroDeviceptr*)&m_nodeBuffer, sizeof( OctreeNode ) * nTotalInternalNodes );
 
 		uint32_t nInput = m_numberOfVoxels;
@@ -228,6 +225,7 @@ struct IntersectorOctreeGPU
 		oroStreamSynchronize( stream );
 
 		assert( m_numberOfNodes <= nTotalInternalNodes );
+		// printf( "ratio %f\n", (float)m_numberOfNodes / nTotalInternalNodes );
 
 #if defined( ENABLE_EMBEDED_MASK )
 		assert( m_numberOfNodes < 0xFFFFFF );
