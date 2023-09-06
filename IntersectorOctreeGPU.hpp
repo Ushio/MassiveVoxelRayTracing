@@ -162,20 +162,11 @@ struct IntersectorOctreeGPU
 
 		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
 
-		int nMaxDAGNodeCombination = 256;
 		int nTotalInternalNodes = 0;
 		for( int i = 0; i < taskCounters.size(); i++ )
 		{
 #if defined( ENABLE_GPU_DAG )
-			nTotalInternalNodes += ss_min( nMaxDAGNodeCombination, taskCounters[i] );
-			if( i < 3 )
-			{
-				nMaxDAGNodeCombination *= 257; // 256 or null
-			}
-			else
-			{
-				nMaxDAGNodeCombination = std::numeric_limits<int>::max();
-			}
+			nTotalInternalNodes += i == 0 ? 256 /* DAG */ : taskCounters[i];
 #else
 			nTotalInternalNodes += taskCounters[i];
 #endif
