@@ -268,7 +268,7 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 
 extern "C" __global__ void bottomUpOctreeBuild(
 	int iteration,
-	OctreeTask* inputOctreeTasks, uint32_t nInput,
+	OctreeTask* octreeTasks, uint32_t nInput,
 	OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes,
 	uint32_t* lpBuffer, uint32_t lpSize,
 	StreamCompaction streamCompaction )
@@ -282,7 +282,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		{
 			if( srcIndex < nInput )
 			{
-				return srcIndex == 0 || inputOctreeTasks[srcIndex - 1].getMortonParent() != inputOctreeTasks[srcIndex].getMortonParent();
+				return srcIndex == 0 || octreeTasks[srcIndex - 1].getMortonParent() != octreeTasks[srcIndex].getMortonParent();
 			}
 			return false;
 		},
@@ -301,13 +301,13 @@ extern "C" __global__ void bottomUpOctreeBuild(
 			}
 
 			// set child
-			uint64_t mortonParent = inputOctreeTasks[srcIndex].getMortonParent();
-			for( int j = srcIndex; j < nInput && inputOctreeTasks[j].getMortonParent() == mortonParent; j++ )
+			uint64_t mortonParent = octreeTasks[srcIndex].getMortonParent();
+			for( int j = srcIndex; j < nInput && octreeTasks[j].getMortonParent() == mortonParent; j++ )
 			{
-				uint32_t space = inputOctreeTasks[j].morton & 0x7;
+				uint32_t space = octreeTasks[j].morton & 0x7;
 				mask |= ( 1 << space ) & 0xFF;
-				children[space] = inputOctreeTasks[j].child;
-				nVoxelsPSum[space] = inputOctreeTasks[j].numberOfVoxels;
+				children[space] = octreeTasks[j].child;
+				nVoxelsPSum[space] = octreeTasks[j].numberOfVoxels;
 			}
 
 			// prefix scan exclusive
@@ -418,7 +418,7 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		int localIndex = i + threadIdx.x;
 		if( localIndex < nOutputsInTheBlock )
 		{
-			inputOctreeTasks[globalPrefixInTheBlock + localIndex] = outputTasks[localIndex];
+			octreeTasks[globalPrefixInTheBlock + localIndex] = outputTasks[localIndex];
 		}
 	}
 }

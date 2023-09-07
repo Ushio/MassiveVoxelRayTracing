@@ -136,7 +136,7 @@ struct IntersectorOctreeGPU
 			m_numberOfVoxels = streamCompaction.readCounter( stream );
 		}
 
-		std::unique_ptr<Buffer> octreeTasksBuffer0( new Buffer( sizeof( OctreeTask ) * m_numberOfVoxels ) );
+		std::unique_ptr<Buffer> octreeTasksBuffer( new Buffer( sizeof( OctreeTask ) * m_numberOfVoxels ) );
 
 		int nIteration = 0;
 		_BitScanForward( (unsigned long*)&nIteration, gridRes );
@@ -147,7 +147,7 @@ struct IntersectorOctreeGPU
 			ShaderArgument args;
 			args.add( mortonVoxelsBuffer->data() );
 			args.add( m_numberOfVoxels );
-			args.add( octreeTasksBuffer0->data() );
+			args.add( octreeTasksBuffer->data() );
 			args.add( taskCountersBuffer.data() );
 			args.add( gridRes );
 			voxKernel->launch( "octreeTaskInit", args, div_round_up64( m_numberOfVoxels, 128 ), 1, 1, 128, 1, 1, stream );
@@ -192,7 +192,7 @@ struct IntersectorOctreeGPU
 
 			ShaderArgument args;
 			args.add( iteration );
-			args.add( octreeTasksBuffer0->data() );
+			args.add( octreeTasksBuffer->data() );
 			args.add( nInput );
 			args.add( m_nodeBuffer );
 			args.add( counterBuffer.data() ); // nOutputNodes
@@ -213,7 +213,7 @@ struct IntersectorOctreeGPU
 		assert( m_numberOfNodes <= nTotalInternalNodes );
 		// printf( "ratio %f\n", (float)m_numberOfNodes / nTotalInternalNodes );
 
-		octreeTasksBuffer0 = std::unique_ptr<Buffer>();
+		octreeTasksBuffer = std::unique_ptr<Buffer>();
 		lpBuffer = std::unique_ptr<Buffer>();
 		
 		// Compaction
