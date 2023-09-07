@@ -216,6 +216,7 @@ struct IntersectorOctreeGPU
 		octreeTasksBuffer = std::unique_ptr<Buffer>();
 		lpBuffer = std::unique_ptr<Buffer>();
 		
+#if defined( ENABLE_GPU_DAG )
 		// Compaction
 		{
 			OctreeNode* nodeBuffer;
@@ -224,6 +225,7 @@ struct IntersectorOctreeGPU
 			oroFree( (oroDeviceptr)m_nodeBuffer );
 			m_nodeBuffer = nodeBuffer;
 		}
+#endif
 
 #if defined( ENABLE_EMBEDED_MASK )
 		assert( m_numberOfNodes < 0xFFFFFF );
