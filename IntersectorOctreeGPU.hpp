@@ -13,7 +13,7 @@
 #define UNIQUE_BATCH_SIZE 2048
 #define UNIQUE_BLOCK_THREADS 1024
 
-#define BOTTOM_UP_BLOCK_SIZE 4096
+#define BOTTOM_UP_BLOCK_SIZE 2048
 #define BOTTOM_UP_BLOCK_THREADS 1024
 
 #define VOXELIZE_BLOCK_THREADS 128
@@ -160,8 +160,6 @@ struct IntersectorOctreeGPU
 		// No need this buffer.
 		mortonVoxelsBuffer = std::unique_ptr<Buffer>(); 
 
-		std::unique_ptr<Buffer> octreeTasksBuffer1( new Buffer( sizeof( OctreeTask ) * taskCounters[0] /* the first outputs */ ) );
-
 		int nTotalInternalNodes = 0;
 		for( int i = 0; i < taskCounters.size(); i++ )
 		{
@@ -196,7 +194,6 @@ struct IntersectorOctreeGPU
 			args.add( iteration );
 			args.add( octreeTasksBuffer0->data() );
 			args.add( nInput );
-			args.add( octreeTasksBuffer1->data() );
 			args.add( m_nodeBuffer );
 			args.add( counterBuffer.data() ); // nOutputNodes
 			args.add( lpBuffer->data() );
@@ -205,8 +202,6 @@ struct IntersectorOctreeGPU
 			voxKernel->launch( "bottomUpOctreeBuild", args, div_round_up64( nInput, BOTTOM_UP_BLOCK_SIZE ), 1, 1, BOTTOM_UP_BLOCK_THREADS, 1, 1, stream );
 
 			nInput = taskCounters[iteration];
-
-			std::swap( octreeTasksBuffer0, octreeTasksBuffer1 );
 
 			iteration++;
 		}
@@ -217,6 +212,18 @@ struct IntersectorOctreeGPU
 
 		assert( m_numberOfNodes <= nTotalInternalNodes );
 		// printf( "ratio %f\n", (float)m_numberOfNodes / nTotalInternalNodes );
+
+		octreeTasksBuffer0 = std::unique_ptr<Buffer>();
+		lpBuffer = std::unique_ptr<Buffer>();
+		
+		// Compaction
+		{
+			OctreeNode* nodeBuffer;
+			oroMalloc( (oroDeviceptr*)&nodeBuffer, sizeof( OctreeNode ) * m_numberOfNodes );
+			oroMemcpyDtoD( (oroDeviceptr)nodeBuffer, (oroDeviceptr)m_nodeBuffer, sizeof( OctreeNode ) * m_numberOfNodes );
+			oroFree( (oroDeviceptr)m_nodeBuffer );
+			m_nodeBuffer = nodeBuffer;
+		}
 
 #if defined( ENABLE_EMBEDED_MASK )
 		assert( m_numberOfNodes < 0xFFFFFF );

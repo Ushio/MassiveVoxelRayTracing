@@ -268,12 +268,13 @@ extern "C" __global__ void octreeTaskInit( const uint64_t* inputMortonVoxels, ui
 
 extern "C" __global__ void bottomUpOctreeBuild(
 	int iteration,
-	const OctreeTask* inputOctreeTasks, uint32_t nInput,
-	OctreeTask* outputOctreeTasks,
+	OctreeTask* inputOctreeTasks, uint32_t nInput,
 	OctreeNode* outputOctreeNodes, uint32_t* nOutputNodes,
 	uint32_t* lpBuffer, uint32_t lpSize,
 	StreamCompaction streamCompaction )
 {
+	__shared__ OctreeTask outputTasks[BOTTOM_UP_BLOCK_SIZE];
+
 	int nOutputsInTheBlock = 0;
 	int globalPrefixInTheBlock = 0;
 	streamCompaction.filter<BOTTOM_UP_BLOCK_SIZE /*ITEMS_PER_BLOCK*/, BOTTOM_UP_BLOCK_THREADS /*BLOCK_DIM*/>(
@@ -287,6 +288,8 @@ extern "C" __global__ void bottomUpOctreeBuild(
 		},
 		[&]( int srcIndex, int dstIndex, int globalPrefix )
 		{
+			int localIndex = dstIndex - globalPrefix;
+
 			uint8_t mask = 0;
 			
 			uint32_t children[8];
@@ -326,9 +329,9 @@ extern "C" __global__ void bottomUpOctreeBuild(
 				outputOctreeNodes[nodeIndex].nVoxelsPSum[j] = nVoxelsPSum[j];
 			}
 
-			outputOctreeTasks[dstIndex].morton = mortonParent;
-			outputOctreeTasks[dstIndex].child = nodeIndex;
-			outputOctreeTasks[dstIndex].numberOfVoxels = numberOfVoxels;
+			outputTasks[localIndex].morton = mortonParent;
+			outputTasks[localIndex].child = nodeIndex;
+			outputTasks[localIndex].numberOfVoxels = numberOfVoxels;
 #else
 			// DAG
 			uint32_t nodeIndex = 0xFFFFFFFF;
@@ -401,12 +404,23 @@ extern "C" __global__ void bottomUpOctreeBuild(
 				}
 			}
 
-			outputOctreeTasks[dstIndex].morton = mortonParent;
-			outputOctreeTasks[dstIndex].child = nodeIndex;
-			outputOctreeTasks[dstIndex].numberOfVoxels = numberOfVoxels;
+			outputTasks[localIndex].morton = mortonParent;
+			outputTasks[localIndex].child = nodeIndex;
+			outputTasks[localIndex].numberOfVoxels = numberOfVoxels;
 #endif
 		} 
 	, &nOutputsInTheBlock, &globalPrefixInTheBlock );
+
+	streamCompaction.granteeBlockExecutionOrder();
+
+	for( int i = 0; i < nOutputsInTheBlock; i += UNIQUE_BLOCK_THREADS )
+	{
+		int localIndex = i + threadIdx.x;
+		if( localIndex < nOutputsInTheBlock )
+		{
+			inputOctreeTasks[globalPrefixInTheBlock + localIndex] = outputTasks[localIndex];
+		}
+	}
 }
 
 extern "C" __global__ void embedMasks( OctreeNode *nodes, uint32_t numberOfNodes )
