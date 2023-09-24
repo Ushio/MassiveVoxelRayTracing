@@ -42,8 +42,9 @@ Open MassiveVoxelRayTracing.sln and build.
 | voxTriangle | A triangle voxelization test |
 
 
-## seminor 
-TBD
+## seminar 
+[![seminar](seminar/Thumbnail_Youtube.png)](https://youtu.be/v62bwst9_k0)
+English subtitles are supported.
 
 ## Awesome References
 ### Voxelization
