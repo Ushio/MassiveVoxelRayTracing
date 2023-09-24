@@ -46,6 +46,8 @@ Open MassiveVoxelRayTracing.sln and build.
 [![seminar](seminar/Thumbnail_Youtube.png)](https://youtu.be/v62bwst9_k0)
 English subtitles are supported.
 
+Slides: [seminar](seminar/seminar_ushio.pdf)
+
 ## Awesome References
 ### Voxelization
 - Michael Schwarz, Hans-Peter Seidel, “Fast Parallel Surface and Solid Voxelization on GPUs”
